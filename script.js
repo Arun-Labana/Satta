@@ -933,7 +933,7 @@ async function testTataSilverOrder() {
                 'Content-Type': 'application/json',
             },
             body: JSON.stringify({
-                symbol: symbol,
+                tradingsymbol: symbol,
                 exchange: 'BSE',
                 quantity: quantity,
                 transaction_type: 'BUY',
@@ -991,7 +991,7 @@ async function placeKiteOrder(symbol, scripCode, cardId) {
                 'Content-Type': 'application/json',
             },
             body: JSON.stringify({
-                symbol: symbol,
+                tradingsymbol: symbol,
                 exchange: 'BSE', // Kite primarily uses BSE
                 quantity: quantity,
                 transaction_type: 'BUY',
