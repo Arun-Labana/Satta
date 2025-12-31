@@ -934,7 +934,7 @@ async function testTataSilverOrder() {
             },
             body: JSON.stringify({
                 tradingsymbol: symbol,
-                exchange: 'BSE',
+                exchange: 'NSE', // Kite primarily uses NSE, will try BSE as fallback if not found
                 quantity: quantity,
                 transaction_type: 'BUY',
                 order_type: 'MARKET',
@@ -992,7 +992,7 @@ async function placeKiteOrder(symbol, scripCode, cardId) {
             },
             body: JSON.stringify({
                 tradingsymbol: symbol,
-                exchange: 'BSE', // Kite primarily uses BSE
+                exchange: 'NSE', // Kite primarily uses NSE, will try BSE as fallback if not found
                 quantity: quantity,
                 transaction_type: 'BUY',
                 order_type: 'MARKET',
