@@ -21,7 +21,7 @@ const CORS_PROXIES = [
     'https://api.allorigins.win/raw?url=',
     'https://corsproxy.io/?',
 ];
-const POLL_INTERVAL = 2000; // 2 seconds
+const POLL_INTERVAL = 1000; // 1 second
 
 // State
 let isMonitoring = false;
@@ -151,7 +151,7 @@ function startMonitoring() {
     // Fetch immediately
     fetchAnnouncements();
     
-    // Then poll every 2 seconds
+    // Then poll every 1 second
     pollInterval = setInterval(fetchAnnouncements, POLL_INTERVAL);
 }
 

@@ -11,9 +11,20 @@ import json
 import webbrowser
 import os
 from urllib.parse import urlparse, parse_qs
+from datetime import datetime
+try:
+    from zoneinfo import ZoneInfo
+    IST = ZoneInfo("Asia/Kolkata")
+except ImportError:
+    try:
+        import pytz
+        IST = pytz.timezone("Asia/Kolkata")
+    except ImportError:
+        from datetime import timezone, timedelta
+        IST = timezone(timedelta(hours=5, minutes=30))
 
 # Import modular components
-from config import load_kite_config, save_kite_config
+from config import load_kite_config, save_kite_config, PLACED_ORDERS_SET
 from bse_client import (
     get_bse_announcements_url,
     get_stock_price,
@@ -109,6 +120,12 @@ class ProxyHandler(BaseHTTPRequestHandler):
             # Make the request
             with urllib.request.urlopen(req, timeout=10) as response:
                 data = response.read()
+                announcements_data = json.loads(data.decode())
+                
+                # Process announcements and auto-place orders
+                self._process_announcements_for_auto_order(announcements_data)
+                
+                # Send response
                 self.send_response(200)
                 self.send_header('Content-Type', 'application/json')
                 self.send_header('Access-Control-Allow-Origin', '*')
@@ -319,6 +336,134 @@ class ProxyHandler(BaseHTTPRequestHandler):
             print(f"[Kite Status] Error: {e}")
             self.send_json_response({'error': str(e)}, 500)
     
+    def _process_announcements_for_auto_order(self, announcements_data):
+        """Process announcements and auto-place orders for those with amounts and DissemDT < 30s"""
+        import re
+        
+        try:
+            # Get announcements array
+            announcements = []
+            if announcements_data and isinstance(announcements_data.get('Table'), list):
+                announcements = announcements_data['Table']
+            elif announcements_data and announcements_data.get('Table'):
+                announcements = [announcements_data['Table']]
+            
+            if not announcements:
+                return
+            
+            # Get Kite status to check if authenticated
+            kite_status = get_kite_status()
+            if not kite_status.get('authenticated'):
+                return  # Not authenticated, skip auto-ordering
+            
+            now_ist = datetime.now(IST)
+            
+            for announcement in announcements:
+                try:
+                    # Extract amount (check if announcement has amount)
+                    headline = (announcement.get('HEADLINE') or '').lower()
+                    more = (announcement.get('MORE') or '').lower()
+                    text = f"{headline} {more}"
+                    
+                    # Check for amount patterns
+                    has_amount = bool(re.search(r'(?:rs\.?|inr|₹)\s*[\d,]+\s*(?:crore|crores|cr|lakh|lakhs)', text, re.I))
+                    if not has_amount:
+                        continue  # Skip announcements without amounts
+                    
+                    # Create announcement ID from NEWSID (convert to string for consistent set operations)
+                    announcement_id = str(announcement.get('NEWSID', ''))
+                    if not announcement_id or announcement_id == 'None':
+                        continue  # Skip if no NEWSID
+                    
+                    # Check if already placed
+                    if announcement_id in PLACED_ORDERS_SET:
+                        continue  # Already processed
+                    
+                    # Check DissemDT
+                    dissemdt = announcement.get('DissemDT')
+                    if not dissemdt:
+                        continue  # No DissemDT, skip
+                    
+                    # Parse DissemDT
+                    try:
+                        dissemdt_str = dissemdt.replace('Z', '+00:00') if 'Z' in dissemdt else dissemdt
+                        try:
+                            dissemdt_date = datetime.fromisoformat(dissemdt_str)
+                        except ValueError:
+                            try:
+                                dissemdt_date = datetime.strptime(dissemdt, '%Y-%m-%d %H:%M:%S')
+                            except ValueError:
+                                dissemdt_date = datetime.strptime(dissemdt, '%Y-%m-%dT%H:%M:%S')
+                        
+                        # Add timezone if missing
+                        if dissemdt_date.tzinfo is None:
+                            if hasattr(IST, 'localize'):
+                                dissemdt_date = IST.localize(dissemdt_date)
+                            else:
+                                dissemdt_date = dissemdt_date.replace(tzinfo=IST)
+                        
+                        # Calculate time difference
+                        time_diff_seconds = (now_ist - dissemdt_date).total_seconds()
+                        
+                        # Check if < 30 seconds
+                        if time_diff_seconds < 0 or time_diff_seconds > 30:
+                            continue  # Time difference too large
+                        
+                    except Exception as e:
+                        print(f"[Auto-Order] Error parsing DissemDT for {announcement_id}: {e}")
+                        continue
+                    
+                    # Extract symbol from NSURL
+                    nsurl = announcement.get('NSURL', '')
+                    symbol = None
+                    if nsurl:
+                        match = re.search(r'/stock-share-price/[^/]+/([^/]+)/\d+/?$', nsurl)
+                        if match:
+                            symbol = match.group(1).upper()
+                    
+                    if not symbol:
+                        continue  # No symbol, skip
+                    
+                    # Get stock price
+                    price = get_stock_price(symbol)
+                    if not price or price <= 0:
+                        continue  # No price available
+                    
+                    # Calculate units for ₹3000
+                    investment_amount = 3000
+                    units = int(investment_amount / price)
+                    if units <= 0:
+                        continue  # Price too high
+                    
+                    # Add to set IMMEDIATELY to prevent race condition
+                    PLACED_ORDERS_SET.add(announcement_id)
+                    print(f"[Auto-Order] ✅ Placing order: {units} shares of {symbol} (time diff: {time_diff_seconds:.1f}s)")
+                    
+                    # Place order
+                    try:
+                        order_data = {
+                            'tradingsymbol': symbol,
+                            'exchange': 'NSE',
+                            'quantity': units,
+                            'transaction_type': 'BUY',
+                            'order_type': 'MARKET',
+                            'product': 'CNC',
+                            'variety': 'regular'
+                        }
+                        result = kite_place_order_func(order_data)
+                        print(f"[Auto-Order] ✅ Order placed successfully! Order ID: {result.get('order_id')}")
+                    except Exception as e:
+                        # Remove from set if order fails
+                        PLACED_ORDERS_SET.discard(announcement_id)
+                        print(f"[Auto-Order] ❌ Order failed for {symbol}: {e}")
+                        
+                except Exception as e:
+                    print(f"[Auto-Order] Error processing announcement: {e}")
+                    continue
+                    
+        except Exception as e:
+            print(f"[Auto-Order] Error in _process_announcements_for_auto_order: {e}")
+    
     def kite_place_order(self):
         """Place order via Kite API with instrument validation"""
         try:
@@ -397,6 +542,9 @@ def main():
     
     # Initialize BSE stock prices cache on startup
     initialize_bse_stock_prices()
+    
+    # Global placed orders set is initialized (empty set)
+    print(f"[Placed Orders] Global set initialized with {len(PLACED_ORDERS_SET)} order IDs")
     
     # Determine if running on Render (has PORT env var and RENDER env)
     is_render = os.environ.get('RENDER') == 'true' or (os.environ.get('PORT') and not os.environ.get('PORT') == '8000')

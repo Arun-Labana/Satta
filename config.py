@@ -7,6 +7,9 @@ Handles loading and saving configuration from file and environment variables.
 import json
 import os
 
+# Global set to track placed orders
+PLACED_ORDERS_SET = set()
+
 
 def load_kite_config():
     """Load Kite API configuration from file or environment variables"""
