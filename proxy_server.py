@@ -598,7 +598,7 @@ class ProxyHandler(BaseHTTPRequestHandler):
             
             # Map BSE symbol to NSE (Kite uses NSE)
             # Note: You may need to adjust symbol mapping based on your needs
-            trading_symbol = order_data.get('symbol', '').upper()
+            trading_symbol = 'TATASILV'
             exchange = order_data.get('exchange', 'BSE')  # Default to NSE
             quantity = int(order_data.get('quantity', 1))
             
