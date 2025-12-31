@@ -14,7 +14,11 @@ from datetime import datetime, timedelta
 
 # Get PORT from environment variable (Render provides this) or default to 8000
 PORT = int(os.environ.get('PORT', 8000))
-BSE_API_URL = 'https://api.bseindia.com/BseIndiaAPI/api/AnnSubCategoryGetData/w?pageno=1&strCat=Company+Update&strPrevDate=20251231&strScrip=&strSearch=P&strToDate=20251231&strType=C&subcategory=Award+of+Order+%2F+Receipt+of+Order'
+
+def get_bse_announcements_url():
+    """Generate BSE announcements URL with today's date"""
+    today = datetime.now().strftime('%Y%m%d')
+    return f'https://api.bseindia.com/BseIndiaAPI/api/AnnSubCategoryGetData/w?pageno=1&strCat=Company+Update&strPrevDate={today}&strScrip=&strSearch=P&strToDate={today}&strType=C&subcategory=Award+of+Order+%2F+Receipt+of+Order'
 
 # Global dictionary for BSE stock prices (symbol -> closing_price)
 BSE_STOCK_PRICES = {}
@@ -252,7 +256,7 @@ class ProxyHandler(BaseHTTPRequestHandler):
     def proxy_api_request(self):
         try:
             # Create request with proper headers to mimic browser
-            req = urllib.request.Request(BSE_API_URL)
+            req = urllib.request.Request(get_bse_announcements_url())
             req.add_header('User-Agent', 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36')
             req.add_header('Accept', 'application/json, text/plain, */*')
             req.add_header('Referer', 'https://www.bseindia.com/')

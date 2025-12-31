@@ -1,5 +1,12 @@
 // Configuration
-const BASE_API_URL = 'https://api.bseindia.com/BseIndiaAPI/api/AnnSubCategoryGetData/w?pageno=1&strCat=Company+Update&strPrevDate=20251231&strScrip=&strSearch=P&strToDate=20251231&strType=C&subcategory=Award+of+Order+%2F+Receipt+of+Order';
+function getBSEAnnouncementsURL() {
+    const today = new Date();
+    const year = today.getFullYear();
+    const month = String(today.getMonth() + 1).padStart(2, '0');
+    const day = String(today.getDate()).padStart(2, '0');
+    const dateStr = `${year}${month}${day}`;
+    return `https://api.bseindia.com/BseIndiaAPI/api/AnnSubCategoryGetData/w?pageno=1&strCat=Company+Update&strPrevDate=${dateStr}&strScrip=&strSearch=P&strToDate=${dateStr}&strType=C&subcategory=Award+of+Order+%2F+Receipt+of+Order`;
+}
 // Use local proxy server if available (recommended for 403 errors)
 const LOCAL_PROXY_URL = '/api/announcements';
 // Try multiple CORS proxy options as fallback
@@ -176,7 +183,7 @@ async function fetchAnnouncements() {
     
     // Try direct fetch with all headers
     try {
-        const response = await fetch(BASE_API_URL, {
+        const response = await fetch(getBSEAnnouncementsURL(), {
             method: 'GET',
             mode: 'cors',
             credentials: 'omit',
@@ -208,8 +215,8 @@ async function fetchAnnouncements() {
     for (const proxy of CORS_PROXIES) {
         try {
             const proxyUrl = proxy === 'https://api.allorigins.win/raw?url=' 
-                ? proxy + encodeURIComponent(BASE_API_URL)
-                : proxy + BASE_API_URL;
+                ? proxy + encodeURIComponent(getBSEAnnouncementsURL())
+                : proxy + getBSEAnnouncementsURL();
             
             const response = await fetch(proxyUrl, {
                 method: 'GET',
