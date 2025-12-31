@@ -223,6 +223,9 @@ class ProxyHandler(BaseHTTPRequestHandler):
         elif self.path.startswith('/api/kite/status'):
             # Check Kite authentication status
             self.kite_status()
+        elif self.path.startswith('/api/kite/instruments'):
+            # Download instruments as CSV
+            self.kite_download_instruments()
         elif self.path.endswith('.css'):
             self.serve_file(self.path[1:], 'text/css')
         elif self.path.endswith('.js'):
@@ -650,6 +653,74 @@ class ProxyHandler(BaseHTTPRequestHandler):
                     f"- The symbol format is incorrect\n\n"
                     f"Please verify the symbol exists on Kite and try again. lenght is '{len(instruments)}'"
                 )
+            self.send_json_response({'error': error_msg}, 500)
+    
+    def kite_download_instruments(self):
+        """Download all instruments as CSV file"""
+        try:
+            if not KITE_AVAILABLE:
+                self.send_json_response({'error': 'KiteConnect library not installed'}, 500)
+                return
+            
+            config = load_kite_config()
+            if not config.get('access_token'):
+                self.send_json_response({'error': 'Not authenticated. Please login first.'}, 401)
+                return
+            
+            kite = KiteConnect(api_key=config['api_key'])
+            kite.set_access_token(config['access_token'])
+            
+            # Get exchange filter from query params
+            from urllib.parse import urlparse, parse_qs
+            parsed = urlparse(self.path)
+            params = parse_qs(parsed.query)
+            exchange = params.get('exchange', [None])[0]
+            
+            # Fetch instruments
+            instruments = kite.instruments(exchange=exchange) if exchange else kite.instruments()
+            
+            # Filter for equity only if requested
+            filter_eq = params.get('equity_only', ['false'])[0].lower() == 'true'
+            if filter_eq:
+                instruments = [inst for inst in instruments if inst.get('instrument_type') == 'EQ']
+            
+            # Convert to CSV
+            import csv
+            import io
+            
+            if not instruments:
+                self.send_json_response({'error': 'No instruments found'}, 404)
+                return
+            
+            # Create CSV in memory
+            output = io.StringIO()
+            fieldnames = ['tradingsymbol', 'name', 'exchange', 'instrument_type', 'segment', 'strike', 'tick_size', 'lot_size', 'expiry']
+            writer = csv.DictWriter(output, fieldnames=fieldnames, extrasaction='ignore')
+            
+            writer.writeheader()
+            for inst in instruments:
+                writer.writerow(inst)
+            
+            csv_content = output.getvalue()
+            output.close()
+            
+            # Generate filename
+            exchange_suffix = f"_{exchange}" if exchange else ""
+            equity_suffix = "_equity_only" if filter_eq else ""
+            filename = f"kite_instruments{exchange_suffix}{equity_suffix}.csv"
+            
+            # Send CSV file
+            self.send_response(200)
+            self.send_header('Content-Type', 'text/csv')
+            self.send_header('Content-Disposition', f'attachment; filename="{filename}"')
+            self.send_header('Access-Control-Allow-Origin', '*')
+            self.send_header('Content-Length', str(len(csv_content.encode('utf-8'))))
+            self.end_headers()
+            self.wfile.write(csv_content.encode('utf-8'))
+            
+        except Exception as e:
+            error_msg = str(e)
+            print(f"[Kite Instruments] Error: {error_msg}")
             self.send_json_response({'error': error_msg}, 500)
     
     def kite_update_config(self):
