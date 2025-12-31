@@ -350,11 +350,15 @@ class ProxyHandler(BaseHTTPRequestHandler):
             config = load_kite_config()
             is_configured = bool(config.get('api_key') and config.get('api_secret'))
             is_authenticated = bool(config.get('access_token'))
+            has_env_vars = bool(os.environ.get('KITE_API_KEY') and os.environ.get('KITE_API_SECRET'))
             
             self.send_json_response({
                 'configured': is_configured,
                 'authenticated': is_authenticated,
-                'kite_available': KITE_AVAILABLE
+                'kite_available': KITE_AVAILABLE,
+                'has_env_vars': has_env_vars,
+                'redirect_url': config.get('redirect_url', ''),
+                'postback_url': config.get('postback_url', '')
             })
         except Exception as e:
             self.send_json_response({'error': str(e)}, 500)
@@ -405,6 +409,15 @@ class ProxyHandler(BaseHTTPRequestHandler):
     def kite_update_config(self):
         """Update Kite configuration"""
         try:
+            # Check if using environment variables (production)
+            if os.environ.get('KITE_API_KEY'):
+                self.send_json_response({
+                    'success': False,
+                    'message': 'Configuration is managed via environment variables in Render. Update them in Render dashboard instead.',
+                    'has_env_vars': True
+                })
+                return
+            
             content_length = int(self.headers['Content-Length'])
             post_data = self.rfile.read(content_length)
             new_config = json.loads(post_data.decode())

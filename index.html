@@ -51,13 +51,13 @@
                     <input type="text" id="kitePostbackUrl" placeholder="https://your-domain.com/kite/postback">
                     <button id="saveKiteConfig" class="btn btn-primary">Save Configuration</button>
                     <p class="modal-info">
-                        <strong>⚠️ HTTPS Required:</strong> Kite requires HTTPS URLs. For local development, use ngrok or similar tunnel service.<br><br>
-                        <strong>Quick Setup with ngrok:</strong><br>
-                        1. Install: <code>brew install ngrok</code><br>
-                        2. Run: <code>ngrok http 8000</code><br>
-                        3. Copy the HTTPS URL (e.g., <code>https://abc123.ngrok.io</code>)<br>
-                        4. Use: <code>https://abc123.ngrok.io/kite/callback</code> and <code>https://abc123.ngrok.io/kite/postback</code><br><br>
-                        See <code>ngrok_setup.md</code> for detailed instructions.<br><br>
+                        <strong>📝 Note:</strong> If you're using Render, add these as <strong>Environment Variables</strong> in Render dashboard instead of using this form.<br><br>
+                        <strong>For Render (Production):</strong><br>
+                        Add in Render Dashboard → Environment tab:<br>
+                        <code>KITE_API_KEY</code>, <code>KITE_API_SECRET</code>, <code>KITE_REDIRECT_URL</code>, <code>KITE_POSTBACK_URL</code><br><br>
+                        <strong>For Local Development:</strong><br>
+                        Use this form or set environment variables locally.<br><br>
+                        <strong>⚠️ HTTPS Required:</strong> Kite requires HTTPS URLs. Render provides this automatically.<br><br>
                         Get your API credentials from <a href="https://developers.kite.trade/" target="_blank">Kite Developer Portal</a>
                     </p>
                 </div>

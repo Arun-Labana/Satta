@@ -734,12 +734,29 @@ async function checkKiteStatus() {
         const data = await response.json();
         kiteAuthenticated = data.authenticated;
         
+        // Hide config button if environment variables are set (production)
+        if (kiteConfigBtn && data.has_env_vars) {
+            kiteConfigBtn.style.display = 'none';
+            // Show info that config is from environment variables
+            const envInfo = document.createElement('span');
+            envInfo.className = 'env-info';
+            envInfo.textContent = '⚙️ Kite: Using Env Vars';
+            envInfo.style.cssText = 'font-size: 0.85em; color: #10b981; margin-left: 10px;';
+            if (!document.querySelector('.env-info')) {
+                kiteConfigBtn.parentElement.insertBefore(envInfo, kiteConfigBtn.nextSibling);
+            }
+        }
+        
         if (kiteLoginBtn) {
             if (data.configured && !data.authenticated) {
                 kiteLoginBtn.style.display = 'inline-block';
+                kiteLoginBtn.textContent = '🔐 Login to Kite';
             } else if (data.authenticated) {
-                kiteLoginBtn.style.display = 'none';
+                kiteLoginBtn.style.display = 'inline-block';
                 kiteLoginBtn.textContent = '✅ Kite Connected';
+                kiteLoginBtn.style.background = '#10b981';
+            } else if (!data.configured) {
+                kiteLoginBtn.style.display = 'none';
             }
         }
     } catch (error) {
@@ -805,7 +822,11 @@ async function saveKiteConfig() {
             document.getElementById('kiteModal').style.display = 'none';
             checkKiteStatus();
         } else {
-            alert('Error: ' + (data.error || 'Failed to save configuration'));
+            if (data.has_env_vars) {
+                alert('⚠️ Configuration is managed via Render environment variables.\n\nTo update:\n1. Go to Render Dashboard → Your Service → Environment\n2. Update KITE_API_KEY, KITE_API_SECRET, etc.\n3. Render will auto-redeploy\n\nThis form is only for local development.');
+            } else {
+                alert('Error: ' + (data.error || 'Failed to save configuration'));
+            }
         }
     } catch (error) {
         alert('Error saving configuration: ' + error.message);
