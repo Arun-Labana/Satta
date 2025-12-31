@@ -68,6 +68,12 @@ document.addEventListener('DOMContentLoaded', () => {
         testTataSilverBtn.addEventListener('click', testTataSilverOrder);
     }
     
+    // Refresh stock prices button
+    const refreshPricesBtn = document.getElementById('refreshPricesBtn');
+    if (refreshPricesBtn) {
+        refreshPricesBtn.addEventListener('click', refreshStockPrices);
+    }
+    
     // Listen for authentication success message from popup
     window.addEventListener('message', (event) => {
         console.log('[Kite Auth] Received message:', event.data, 'from origin:', event.origin);
@@ -1012,3 +1018,52 @@ async function placeKiteOrder(symbol, scripCode, cardId) {
     }
 }
 
+
+// Refresh stock prices dictionary
+async function refreshStockPrices() {
+    const btn = document.getElementById('refreshPricesBtn');
+    const originalText = btn.textContent;
+    
+    // Disable button and show loading state
+    btn.disabled = true;
+    btn.textContent = '⏳ Refreshing...';
+    
+    try {
+        const response = await fetch('/api/refresh-prices', {
+            method: 'GET',
+            headers: {
+                'Accept': 'application/json',
+            }
+        });
+        
+        const data = await response.json();
+        
+        if (response.ok && data.success) {
+            btn.textContent = '✅ Refreshed!';
+            btn.style.background = '#10b981';
+            
+            // Show success message
+            alert(`✅ Stock prices refresh started!\n\nCurrent cache: ${data.current_count} stocks\n\nRefresh is running in background. Prices will update shortly.`);
+            
+            // Reset button after 3 seconds
+            setTimeout(() => {
+                btn.textContent = originalText;
+                btn.style.background = '';
+                btn.disabled = false;
+            }, 3000);
+        } else {
+            throw new Error(data.error || 'Failed to refresh prices');
+        }
+    } catch (error) {
+        btn.textContent = '❌ Error';
+        btn.style.background = '#dc2626';
+        alert('❌ Error refreshing stock prices: ' + error.message);
+        
+        // Reset button after 3 seconds
+        setTimeout(() => {
+            btn.textContent = originalText;
+            btn.style.background = '';
+            btn.disabled = false;
+        }, 3000);
+    }
+}

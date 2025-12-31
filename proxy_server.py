@@ -261,6 +261,9 @@ class ProxyHandler(BaseHTTPRequestHandler):
         elif self.path.startswith('/api/kite/status'):
             # Check Kite authentication status
             self.kite_status()
+        elif self.path.startswith('/api/refresh-prices'):
+            # Refresh BSE stock prices dictionary
+            self.refresh_stock_prices()
         elif self.path.startswith('/api/kite/instruments'):
             # Download instruments as CSV
             self.kite_download_instruments()
@@ -443,6 +446,37 @@ class ProxyHandler(BaseHTTPRequestHandler):
             self.end_headers()
             error_data = json.dumps({'error': str(e)}).encode()
             self.wfile.write(error_data)
+    
+    def refresh_stock_prices(self):
+        """Refresh BSE stock prices dictionary"""
+        try:
+            global BSE_STOCK_PRICES
+            
+            print("[BSE EOD] Manual refresh requested")
+            
+            # Run in background thread to avoid blocking
+            import threading
+            
+            def refresh_in_background():
+                result = download_bse_eod_data()
+                if result:
+                    print(f"[BSE EOD] ✅ Successfully refreshed cache with {len(BSE_STOCK_PRICES)} stocks")
+                else:
+                    print("[BSE EOD] ⚠️ Failed to refresh cache")
+            
+            thread = threading.Thread(target=refresh_in_background, daemon=True)
+            thread.start()
+            
+            # Return immediately with current status
+            self.send_json_response({
+                'success': True,
+                'message': 'Stock prices refresh started in background',
+                'current_count': len(BSE_STOCK_PRICES),
+                'status': 'Refreshing...'
+            })
+        except Exception as e:
+            print(f"[BSE EOD] Error refreshing prices: {e}")
+            self.send_json_response({'error': str(e)}, 500)
     
     def kite_login(self):
         """Generate Kite login URL"""
