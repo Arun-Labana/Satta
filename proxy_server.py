@@ -298,9 +298,26 @@ class ProxyHandler(BaseHTTPRequestHandler):
             if not scrip_code:
                 raise ValueError('Scrip code is required')
             
-            # Try multiple methods to get stock price
+            # Method 1: Try BSE_STOCK_PRICES dictionary first (fastest, cached data)
+            if symbol and BSE_STOCK_PRICES:
+                symbol_upper = symbol.upper()
+                if symbol_upper in BSE_STOCK_PRICES:
+                    price = BSE_STOCK_PRICES[symbol_upper]
+                    result = {
+                        'price': price,
+                        'source': 'BSE_EOD_Cache',
+                        'symbol': symbol_upper
+                    }
+                    response_data = json.dumps(result).encode()
+                    self.send_response(200)
+                    self.send_header('Content-Type', 'application/json')
+                    self.send_header('Access-Control-Allow-Origin', '*')
+                    self.send_header('Content-Length', str(len(response_data)))
+                    self.end_headers()
+                    self.wfile.write(response_data)
+                    return
             
-            # Method 1: Try BSE StockTrading API (has WAP which is close to current price)
+            # Method 2: Try BSE StockTrading API (has WAP which is close to current price)
             try:
                 price_url = f'https://api.bseindia.com/BseIndiaAPI/api/StockTrading/w?scripcode={scrip_code}&flag=&seriesid='
                 req = urllib.request.Request(price_url)
