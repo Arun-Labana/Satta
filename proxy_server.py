@@ -606,91 +606,14 @@ class ProxyHandler(BaseHTTPRequestHandler):
                 self.send_json_response({'error': 'Quantity must be greater than 0'}, 400)
                 return
             
-            # Get preferred exchange from order data, default to NSE (Kite primarily uses NSE)
-            preferred_exchange = order_data.get('exchange', 'NSE').upper()
+            # Get exchange, default to NSE (Kite primarily uses NSE)
+            exchange = order_data.get('exchange', 'NSE').upper()
+            if exchange not in ['NSE', 'BSE']:
+                exchange = 'NSE'
             
-            # Try to find the instrument in Kite's instrument list
-            # This validates that the symbol exists and gets the correct exchange
-            instrument_found = None
-            exchanges_to_try = []
+            print(f"[Kite Order] Placing order: {trading_symbol} on {exchange}, qty: {quantity}")
             
-            # If exchange is specified, try that first
-            if preferred_exchange in ['NSE', 'BSE']:
-                exchanges_to_try.append(preferred_exchange)
-            
-            # Also try the other exchange as fallback
-            if preferred_exchange == 'NSE':
-                exchanges_to_try.append('BSE')
-            elif preferred_exchange == 'BSE':
-                exchanges_to_try.append('NSE')
-            else:
-                # If invalid exchange specified, try both
-                exchanges_to_try = ['NSE', 'BSE']
-            
-            print(f"[Kite Order] Looking up instrument: {trading_symbol} in exchanges: {exchanges_to_try}")
-            
-            # Get instruments list (cache this if possible for performance)
-            instruments = None
-            try:
-                instruments = kite.instruments()
-                print(f"[Kite Order] Loaded {len(instruments)} instruments from Kite")
-            except Exception as e:
-                print(f"[Kite Order] Error fetching instruments: {e}")
-                # If we can't fetch instruments, proceed with original exchange
-                # This is a fallback - not ideal but allows orders to proceed
-                instrument_found = {'exchange': preferred_exchange, 'tradingsymbol': trading_symbol}
-            
-            # Search for the instrument
-            if instruments and not instrument_found:
-                for exchange in exchanges_to_try:
-                    # Look for exact match of trading symbol in the specified exchange
-                    matches = [
-                        inst for inst in instruments
-                        if inst.get('exchange') == exchange
-                        and inst.get('tradingsymbol', '').upper() == trading_symbol
-                        and inst.get('instrument_type') == 'EQ'  # Equity only
-                    ]
-                    
-                    if matches:
-                        instrument_found = matches[0]
-                        print(f"[Kite Order] Found instrument: {instrument_found['tradingsymbol']} on {instrument_found['exchange']}")
-                        break
-            
-            if not instrument_found and instruments:
-                # Try fuzzy match - sometimes symbols differ slightly
-                for exchange in exchanges_to_try:
-                        # Try partial match or similar symbol
-                        matches = [
-                            inst for inst in instruments
-                            if inst.get('exchange') == exchange
-                            and trading_symbol in inst.get('tradingsymbol', '').upper()
-                            and inst.get('instrument_type') == 'EQ'
-                        ]
-                        if matches:
-                            instrument_found = matches[0]
-                            print(f"[Kite Order] Found similar instrument: {instrument_found['tradingsymbol']} on {instrument_found['exchange']}")
-                            break
-            
-            if not instrument_found:
-                error_msg = (
-                    f"Instrument '{trading_symbol}' not found on {', '.join(exchanges_to_try)}. "
-                    f"Possible reasons:\n"
-                    f"- Symbol doesn't exist on these exchanges\n"
-                    f"- Symbol format is incorrect\n"
-                    f"- Instrument has expired (for F&O)\n"
-                    f"- Stock is delisted or suspended\n\n"
-                    f"Please verify the symbol exists on Kite and try again."
-                )
-                self.send_json_response({'error': error_msg}, 400)
-                return
-            
-            # Use the found instrument's exchange and trading symbol
-            final_exchange = instrument_found['exchange']
-            final_tradingsymbol = instrument_found['tradingsymbol']
-            
-            print(f"[Kite Order] Placing order: {final_tradingsymbol} on {final_exchange}, qty: {quantity}")
-            
-            # Place order with validated instrument
+            # Place order directly - let Kite API handle validation (faster, no extra API calls)
             # Validity: DAY (valid for entire trading day) or IOC (Immediate or Cancel)
             # For MARKET orders, IOC is recommended; for LIMIT orders, DAY is common
             order_type = order_data.get('order_type', 'MARKET')
@@ -698,8 +621,8 @@ class ProxyHandler(BaseHTTPRequestHandler):
             validity = order_data.get('validity', default_validity)
             
             order_id = kite.place_order(
-                tradingsymbol=final_tradingsymbol,
-                exchange=final_exchange,
+                tradingsymbol=trading_symbol,
+                exchange=exchange,
                 transaction_type=order_data.get('transaction_type', 'BUY'),
                 quantity=quantity,
                 order_type=order_type,
@@ -711,14 +634,11 @@ class ProxyHandler(BaseHTTPRequestHandler):
             self.send_json_response({
                 'success': True,
                 'order_id': order_id,
-                'message': f'Order placed successfully for {quantity} shares of {final_tradingsymbol} on {final_exchange}',
-                'instrument': {
-                    'tradingsymbol': final_tradingsymbol,
-                    'exchange': final_exchange
-                }
+                'message': f'Order placed successfully for {quantity} shares of {trading_symbol} on {exchange}'
             })
         except Exception as e:
-            error_msg = str(e)
+            instruments = kite.instruments()
+            error_msg = str(e) + " length of instruments is " + str(len(instruments))
             print(f"[Kite Order] Error: {error_msg}")
             # Provide more helpful error messages
             if 'instrument' in error_msg.lower() or 'expired' in error_msg.lower() or 'does not exist' in error_msg.lower():
@@ -728,7 +648,7 @@ class ProxyHandler(BaseHTTPRequestHandler):
                     f"- The trading symbol '{order_data.get('tradingsymbol', '')}' doesn't exist on the specified exchange\n"
                     f"- The instrument has expired (for F&O contracts)\n"
                     f"- The symbol format is incorrect\n\n"
-                    f"Please verify the symbol exists on Kite and try again."
+                    f"Please verify the symbol exists on Kite and try again. lenght is '{len(instruments)}'"
                 )
             self.send_json_response({'error': error_msg}, 500)
     
