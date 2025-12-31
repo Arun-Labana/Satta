@@ -480,6 +480,8 @@ class ProxyHandler(BaseHTTPRequestHandler):
     
     def kite_callback(self):
         """Handle Kite OAuth callback"""
+        global KITE_INSTANCE, KITE_INSTANCE_ACCESS_TOKEN
+        
         try:
             from urllib.parse import urlparse, parse_qs
             parsed = urlparse(self.path)
@@ -512,12 +514,6 @@ class ProxyHandler(BaseHTTPRequestHandler):
             config['request_token'] = request_token
             
             # Invalidate Kite instance cache so new token is used immediately
-            global KITE_INSTANCE, KITE_INSTANCE_ACCESS_TOKEN
-            KITE_INSTANCE = None
-            KITE_INSTANCE_ACCESS_TOKEN = None
-            
-            # Invalidate Kite instance cache so new token is used
-            global KITE_INSTANCE, KITE_INSTANCE_ACCESS_TOKEN
             KITE_INSTANCE = None
             KITE_INSTANCE_ACCESS_TOKEN = None
             
