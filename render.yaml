@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: bse-announcements-dashboard
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: python proxy_server.py
+    envVars:
+      - key: PORT
+        value: 8000
+      - key: PYTHON_VERSION
+        value: 3.11.0
+

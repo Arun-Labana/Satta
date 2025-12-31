@@ -11,7 +11,8 @@ import json
 import webbrowser
 import os
 
-PORT = 8000
+# Get PORT from environment variable (Render provides this) or default to 8000
+PORT = int(os.environ.get('PORT', 8000))
 BSE_API_URL = 'https://api.bseindia.com/BseIndiaAPI/api/AnnSubCategoryGetData/w?pageno=1&strCat=Company+Update&strPrevDate=20251231&strScrip=&strSearch=P&strToDate=20251231&strType=C&subcategory=Award+of+Order+%2F+Receipt+of+Order'
 
 # Try to import KiteConnect, but make it optional
@@ -23,19 +24,24 @@ except ImportError:
     print("⚠️  KiteConnect not installed. Install with: pip install kiteconnect")
 
 def load_kite_config():
-    """Load Kite API configuration"""
-    config_path = 'kite_config.json'
-    if os.path.exists(config_path):
-        with open(config_path, 'r') as f:
-            return json.load(f)
-    return {
-        "api_key": "",
-        "api_secret": "",
-        "access_token": "",
-        "request_token": "",
-        "redirect_url": "",
-        "postback_url": ""
+    """Load Kite API configuration from file or environment variables"""
+    # Try environment variables first (for Render/production)
+    config = {
+        "api_key": os.environ.get('KITE_API_KEY', ''),
+        "api_secret": os.environ.get('KITE_API_SECRET', ''),
+        "access_token": os.environ.get('KITE_ACCESS_TOKEN', ''),
+        "request_token": os.environ.get('KITE_REQUEST_TOKEN', ''),
+        "redirect_url": os.environ.get('KITE_REDIRECT_URL', ''),
+        "postback_url": os.environ.get('KITE_POSTBACK_URL', '')
     }
+    
+    # If no env vars, try config file (for local development)
+    if not config.get('api_key') and os.path.exists('kite_config.json'):
+        with open('kite_config.json', 'r') as f:
+            file_config = json.load(f)
+            config.update(file_config)
+    
+    return config
 
 def save_kite_config(config):
     """Save Kite API configuration"""
@@ -234,11 +240,23 @@ class ProxyHandler(BaseHTTPRequestHandler):
                 return
             
             kite = KiteConnect(api_key=config['api_key'])
+            
+            # Use redirect_url from config if available, otherwise construct from request
+            redirect_url = config.get('redirect_url')
+            if not redirect_url:
+                # Try to get from request headers (for Render/production)
+                host = self.headers.get('Host', '')
+                if host:
+                    redirect_url = f'https://{host}/kite/callback'
+                else:
+                    redirect_url = 'http://localhost:8000/kite/callback'
+            
             login_url = kite.login_url()
             
             self.send_json_response({
                 'login_url': login_url,
-                'message': 'Redirect user to this URL for authentication'
+                'message': 'Redirect user to this URL for authentication',
+                'redirect_url': redirect_url
             })
         except Exception as e:
             self.send_json_response({'error': str(e)}, 500)
@@ -416,16 +434,26 @@ class ProxyHandler(BaseHTTPRequestHandler):
 def main():
     os.chdir(os.path.dirname(os.path.abspath(__file__)))
     
-    server = HTTPServer(("", PORT), ProxyHandler)
-    print(f"🚀 Proxy server running at http://localhost:{PORT}")
-    print(f"📂 Serving directory: {os.getcwd()}")
-    print(f"🔗 API proxy endpoint: http://localhost:{PORT}/api/announcements")
-    print("\nPress Ctrl+C to stop the server\n")
+    # Determine if running on Render (has PORT env var and RENDER env)
+    is_render = os.environ.get('RENDER') == 'true' or (os.environ.get('PORT') and not os.environ.get('PORT') == '8000')
+    host = '0.0.0.0' if is_render else 'localhost'
     
-    try:
-        webbrowser.open(f'http://localhost:{PORT}')
-    except:
-        pass
+    server = HTTPServer((host, PORT), ProxyHandler)
+    
+    if is_render:
+        print(f"🚀 Server running on Render at port {PORT}")
+        print(f"📂 Serving directory: {os.getcwd()}")
+        print(f"🔗 API proxy endpoint: /api/announcements")
+    else:
+        print(f"🚀 Proxy server running at http://localhost:{PORT}")
+        print(f"📂 Serving directory: {os.getcwd()}")
+        print(f"🔗 API proxy endpoint: http://localhost:{PORT}/api/announcements")
+        print("\nPress Ctrl+C to stop the server\n")
+        
+        try:
+            webbrowser.open(f'http://localhost:{PORT}')
+        except:
+            pass
     
     try:
         server.serve_forever()
