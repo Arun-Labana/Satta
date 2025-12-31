@@ -57,27 +57,29 @@ This guide will help you deploy the BSE Announcements Dashboard to Render.
 
 ## Step 5: Configure Kite API (If Using)
 
-1. **Get your Render URL** (e.g., `https://your-app.onrender.com`)
+**Your Render URL**: https://satta-3avv.onrender.com
 
-2. **Update Kite App Settings:**
+1. **Update Kite App Settings:**
    - Go to https://developers.kite.trade/
    - Edit your app
    - Set:
-     - **Redirect URL**: `https://your-app.onrender.com/kite/callback`
-     - **Postback URL**: `https://your-app.onrender.com/kite/postback`
+     - **Redirect URL**: `https://satta-3avv.onrender.com/kite/callback`
+     - **Postback URL**: `https://satta-3avv.onrender.com/kite/postback`
+   - Save changes
 
-3. **Add Environment Variables in Render:**
-   - Go to your Render service dashboard
-   - Click "Environment"
-   - Add:
+2. **Add Environment Variables in Render:**
+   - Go to your Render service dashboard: https://dashboard.render.com
+   - Select your service: `bse-announcements-dashboard`
+   - Click "Environment" tab
+   - Add these variables:
      ```
      KITE_API_KEY=your_api_key
      KITE_API_SECRET=your_api_secret
-     KITE_REDIRECT_URL=https://your-app.onrender.com/kite/callback
-     KITE_POSTBACK_URL=https://your-app.onrender.com/kite/postback
+     KITE_REDIRECT_URL=https://satta-3avv.onrender.com/kite/callback
+     KITE_POSTBACK_URL=https://satta-3avv.onrender.com/kite/postback
      ```
    - Click "Save Changes"
-   - Render will automatically redeploy
+   - Render will automatically redeploy (takes 2-3 minutes)
 
 ## Step 6: Access Your Dashboard
 
