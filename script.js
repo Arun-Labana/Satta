@@ -917,7 +917,7 @@ async function testTataSilverOrder() {
     }
     
     // Tata Silver NSE symbol
-    const symbol = 'TATASILV';
+    const symbol = 'TATSILV';
     const quantity = 1;
     
     // Confirm order
