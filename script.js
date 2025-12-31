@@ -57,15 +57,21 @@ document.addEventListener('DOMContentLoaded', () => {
     
     // Listen for authentication success message from popup
     window.addEventListener('message', (event) => {
+        console.log('[Kite Auth] Received message:', event.data, 'from origin:', event.origin);
         if (event.data && event.data.type === 'kite_auth_success') {
+            console.log('[Kite Auth] Authentication success message received, checking status...');
             // Wait a moment for server to save token, then check status
             setTimeout(() => {
+                console.log('[Kite Auth] First status check (1s delay)');
                 checkKiteStatus();
             }, 1000);
             // Also check again after a longer delay to ensure it's updated
             setTimeout(() => {
+                console.log('[Kite Auth] Second status check (2s delay)');
                 checkKiteStatus();
             }, 2000);
+        } else {
+            console.log('[Kite Auth] Message received but not kite_auth_success type:', event.data);
         }
     });
     
@@ -744,8 +750,10 @@ let kiteAuthenticated = false;
 
 async function checkKiteStatus() {
     try {
+        console.log('[Kite Status] Checking status...');
         const response = await fetch('/api/kite/status');
         const data = await response.json();
+        console.log('[Kite Status] Response data:', data);
         kiteAuthenticated = data.authenticated;
         
         // Hide config button if environment variables are set (production)
@@ -762,20 +770,26 @@ async function checkKiteStatus() {
         }
         
         if (kiteLoginBtn) {
+            console.log('[Kite Status] Updating button. configured:', data.configured, 'authenticated:', data.authenticated);
             if (data.configured && !data.authenticated) {
+                console.log('[Kite Status] Showing login button');
                 kiteLoginBtn.style.display = 'inline-block';
                 kiteLoginBtn.textContent = '🔐 Login to Kite';
                 kiteLoginBtn.style.background = ''; // Reset background
             } else if (data.authenticated) {
+                console.log('[Kite Status] Showing connected button');
                 kiteLoginBtn.style.display = 'inline-block';
                 kiteLoginBtn.textContent = '✅ Kite Connected';
                 kiteLoginBtn.style.background = '#10b981';
             } else if (!data.configured) {
+                console.log('[Kite Status] Hiding button (not configured)');
                 kiteLoginBtn.style.display = 'none';
             }
+        } else {
+            console.warn('[Kite Status] kiteLoginBtn element not found!');
         }
     } catch (error) {
-        console.error('Error checking Kite status:', error);
+        console.error('[Kite Status] Error checking status:', error);
     }
 }
 

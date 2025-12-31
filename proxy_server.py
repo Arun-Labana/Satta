@@ -25,7 +25,7 @@ except ImportError:
 
 def load_kite_config():
     """Load Kite API configuration from file or environment variables"""
-    # Try environment variables first (for Render/production)
+    # Start with environment variables (for Render/production)
     config = {
         "api_key": os.environ.get('KITE_API_KEY', ''),
         "api_secret": os.environ.get('KITE_API_SECRET', ''),
@@ -35,11 +35,30 @@ def load_kite_config():
         "postback_url": os.environ.get('KITE_POSTBACK_URL', '')
     }
     
-    # If no env vars, try config file (for local development)
-    if not config.get('api_key') and os.path.exists('kite_config.json'):
-        with open('kite_config.json', 'r') as f:
-            file_config = json.load(f)
-            config.update(file_config)
+    # Always try to load from file to get access_token (even if env vars exist)
+    # The access_token is dynamic and won't be in env vars
+    if os.path.exists('kite_config.json'):
+        try:
+            with open('kite_config.json', 'r') as f:
+                file_config = json.load(f)
+                # Merge file config, but prioritize env vars for credentials
+                # This allows access_token from file to be loaded even when using env vars
+                if not config.get('api_key'):
+                    config['api_key'] = file_config.get('api_key', '')
+                if not config.get('api_secret'):
+                    config['api_secret'] = file_config.get('api_secret', '')
+                # Always use access_token from file if it exists (it's dynamic)
+                if file_config.get('access_token'):
+                    config['access_token'] = file_config.get('access_token')
+                if file_config.get('request_token'):
+                    config['request_token'] = file_config.get('request_token')
+                # Use file config for URLs if not in env vars
+                if not config.get('redirect_url'):
+                    config['redirect_url'] = file_config.get('redirect_url', '')
+                if not config.get('postback_url'):
+                    config['postback_url'] = file_config.get('postback_url', '')
+        except Exception as e:
+            print(f"[Config] Error loading kite_config.json: {e}")
     
     return config
 
@@ -269,12 +288,15 @@ class ProxyHandler(BaseHTTPRequestHandler):
             params = parse_qs(parsed.query)
             request_token = params.get('request_token', [None])[0]
             
+            print(f"[Kite Callback] Received callback, request_token present: {request_token is not None}")
+            
             if not request_token:
                 self.send_error(400, 'Missing request_token')
                 return
             
             config = load_kite_config()
             if not config.get('api_key') or not config.get('api_secret'):
+                print("[Kite Callback] ERROR: API credentials not configured")
                 self.send_error(400, 'API credentials not configured')
                 return
             
@@ -285,21 +307,21 @@ class ProxyHandler(BaseHTTPRequestHandler):
             kite = KiteConnect(api_key=config['api_key'])
             data = kite.generate_session(request_token, api_secret=config['api_secret'])
             
+            print(f"[Kite Callback] Session generated, access_token received: {bool(data.get('access_token'))}")
+            
             # Save access token
             config['access_token'] = data['access_token']
             config['request_token'] = request_token
             
-            # If using environment variables, try to save to file anyway (for persistence)
-            # In production, you might want to store this in a database or update env var
+            # Save to file (this is critical for persistence)
             try:
                 save_kite_config(config)
-            except:
-                # If file save fails (e.g., read-only filesystem on Render), that's okay
-                # Token is in memory and will work for this session
+                print(f"[Kite Callback] Config saved to kite_config.json successfully")
+            except Exception as e:
+                print(f"[Kite Callback] WARNING: Failed to save config to file: {e}")
+                # If file save fails, token is only in memory for this request
+                # On Render, file system might be read-only, so we need another solution
                 pass
-            
-            # Store access token in a way that persists across requests
-            # For now, we'll save to file. For production, consider database or env var update
             
             # Redirect to success page
             html = """
@@ -310,11 +332,20 @@ class ProxyHandler(BaseHTTPRequestHandler):
                 <h1 style="color: green;">✅ Authentication Successful!</h1>
                 <p>You can now close this window and return to the dashboard.</p>
                 <script>
+                    console.log('[Kite Callback] Page loaded, checking window.opener...');
+                    console.log('[Kite Callback] window.opener exists:', !!window.opener);
                     // Notify parent window about successful authentication
                     if (window.opener) {
+                        console.log('[Kite Callback] Sending postMessage to parent window...');
                         window.opener.postMessage({ type: 'kite_auth_success' }, '*');
+                        console.log('[Kite Callback] postMessage sent');
+                    } else {
+                        console.error('[Kite Callback] window.opener is null! Cannot send message to parent.');
                     }
-                    setTimeout(() => window.close(), 2000);
+                    setTimeout(() => {
+                        console.log('[Kite Callback] Closing window...');
+                        window.close();
+                    }, 2000);
                 </script>
             </body>
             </html>
@@ -324,6 +355,7 @@ class ProxyHandler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(html.encode())
         except Exception as e:
+            print(f"[Kite Callback] Error: {e}")
             error_html = f"""
             <!DOCTYPE html>
             <html>
@@ -369,6 +401,13 @@ class ProxyHandler(BaseHTTPRequestHandler):
             is_authenticated = bool(config.get('access_token'))
             has_env_vars = bool(os.environ.get('KITE_API_KEY') and os.environ.get('KITE_API_SECRET'))
             
+            print(f"[Kite Status] Request received")
+            print(f"[Kite Status] configured: {is_configured}, authenticated: {is_authenticated}")
+            print(f"[Kite Status] has_env_vars: {has_env_vars}")
+            print(f"[Kite Status] access_token present: {bool(config.get('access_token'))}")
+            print(f"[Kite Status] access_token length: {len(config.get('access_token', ''))}")
+            print(f"[Kite Status] File exists: {os.path.exists('kite_config.json')}")
+            
             self.send_json_response({
                 'configured': is_configured,
                 'authenticated': is_authenticated,
@@ -378,6 +417,7 @@ class ProxyHandler(BaseHTTPRequestHandler):
                 'postback_url': config.get('postback_url', '')
             })
         except Exception as e:
+            print(f"[Kite Status] Error: {e}")
             self.send_json_response({'error': str(e)}, 500)
     
     def kite_place_order(self):
