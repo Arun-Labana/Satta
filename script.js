@@ -934,11 +934,12 @@ async function testTataSilverOrder() {
             },
             body: JSON.stringify({
                 symbol: symbol,
-                exchange: 'NSE',
+                exchange: 'BSE',
                 quantity: quantity,
                 transaction_type: 'BUY',
                 order_type: 'MARKET',
-                product: 'CNC'
+                product: 'CNC',
+                variety: 'regular' // regular, amo, co, bo, iceberg
             })
         });
         
@@ -991,11 +992,12 @@ async function placeKiteOrder(symbol, scripCode, cardId) {
             },
             body: JSON.stringify({
                 symbol: symbol,
-                exchange: 'NSE', // Kite primarily uses NSE
+                exchange: 'BSE', // Kite primarily uses BSE
                 quantity: quantity,
                 transaction_type: 'BUY',
                 order_type: 'MARKET',
-                product: 'CNC' // CNC for delivery
+                product: 'CNC', // CNC for delivery
+                variety: 'regular' // regular, amo, co, bo, iceberg
             })
         });
         

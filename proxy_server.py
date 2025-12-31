@@ -599,7 +599,7 @@ class ProxyHandler(BaseHTTPRequestHandler):
             # Map BSE symbol to NSE (Kite uses NSE)
             # Note: You may need to adjust symbol mapping based on your needs
             trading_symbol = order_data.get('symbol', '').upper()
-            exchange = order_data.get('exchange', 'NSE')  # Default to NSE
+            exchange = order_data.get('exchange', 'BSE')  # Default to NSE
             quantity = int(order_data.get('quantity', 1))
             
             # Place order
@@ -609,7 +609,8 @@ class ProxyHandler(BaseHTTPRequestHandler):
                 transaction_type=order_data.get('transaction_type', 'BUY'),
                 quantity=quantity,
                 order_type=order_data.get('order_type', 'MARKET'),
-                product=order_data.get('product', 'CNC')  # CNC for delivery
+                product=order_data.get('product', 'CNC'),  # CNC for delivery
+                variety=order_data.get('variety', 'regular')  # regular, amo, co, bo, iceberg
             )
             
             self.send_json_response({
