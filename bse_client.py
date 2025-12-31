@@ -4,16 +4,30 @@ BSE API client module.
 Handles BSE announcements, EOD data downloads, and stock price caching.
 """
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import threading
+try:
+    from zoneinfo import ZoneInfo
+    IST = ZoneInfo("Asia/Kolkata")
+except ImportError:
+    # Fallback for Python < 3.9 or systems without zoneinfo
+    try:
+        import pytz
+        IST = pytz.timezone("Asia/Kolkata")
+    except ImportError:
+        # Manual IST offset (UTC+5:30) as last resort
+        IST = timezone(timedelta(hours=5, minutes=30))
 
 # Global dictionary for BSE stock prices (symbol -> closing_price)
 BSE_STOCK_PRICES = {}
 
 
 def get_bse_announcements_url():
-    """Generate BSE announcements URL with today's date"""
-    today = datetime.now().strftime('%Y%m%d')
+    """Generate BSE announcements URL with today's date in IST"""
+    # Get current time in IST (Indian Standard Time, UTC+5:30)
+    # datetime.now() works with ZoneInfo, datetime.timezone, and pytz timezone objects
+    now_ist = datetime.now(IST)
+    today = now_ist.strftime('%Y%m%d')
     return f'https://api.bseindia.com/BseIndiaAPI/api/AnnSubCategoryGetData/w?pageno=1&strCat=Company+Update&strPrevDate={today}&strScrip=&strSearch=P&strToDate={today}&strType=C&subcategory=Award+of+Order+%2F+Receipt+of+Order'
 
 
@@ -29,7 +43,9 @@ def download_bse_eod_data():
         import requests
         import pandas as pd
         
-        today = datetime.now()
+        # Get current time in IST (Indian Standard Time, UTC+5:30)
+        # datetime.now() works with ZoneInfo, datetime.timezone, and pytz timezone objects
+        today = datetime.now(IST)
         max_days_back = 15
         
         print(f"[BSE EOD] Searching for last trading day (checking up to {max_days_back} days back)...")

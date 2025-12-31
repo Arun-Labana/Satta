@@ -1,9 +1,16 @@
 // Configuration
 function getBSEAnnouncementsURL() {
-    const today = new Date();
-    const year = today.getFullYear();
-    const month = String(today.getMonth() + 1).padStart(2, '0');
-    const day = String(today.getDate()).padStart(2, '0');
+    // Get current date in IST (Indian Standard Time, UTC+5:30)
+    // Date.now() gives UTC milliseconds since epoch
+    // Add IST offset (5 hours 30 minutes = 5.5 hours = 19800000 milliseconds)
+    const istOffset = 5.5 * 60 * 60 * 1000; // IST is UTC+5:30 in milliseconds
+    const istTime = new Date(Date.now() + istOffset);
+    
+    // Format date as YYYYMMDD using IST time
+    // Since we added the offset, getUTCFullYear/getUTCMonth/getUTCDate give us IST date
+    const year = istTime.getUTCFullYear();
+    const month = String(istTime.getUTCMonth() + 1).padStart(2, '0');
+    const day = String(istTime.getUTCDate()).padStart(2, '0');
     const dateStr = `${year}${month}${day}`;
     return `https://api.bseindia.com/BseIndiaAPI/api/AnnSubCategoryGetData/w?pageno=1&strCat=Company+Update&strPrevDate=${dateStr}&strScrip=&strSearch=P&strToDate=${dateStr}&strType=C&subcategory=Award+of+Order+%2F+Receipt+of+Order`;
 }
