@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BSE Announcements Dashboard</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>📢 BSE Announcements Dashboard</h1>
+            <div class="status-bar">
+                <div class="status-indicator" id="statusIndicator">
+                    <span class="status-dot"></span>
+                    <span id="statusText">Initializing...</span>
+                </div>
+                <div class="last-update" id="lastUpdate"></div>
+            </div>
+        </header>
+
+        <div class="controls">
+            <button id="toggleBtn" class="btn btn-primary">Start Monitoring</button>
+            <button id="clearBtn" class="btn btn-secondary">Clear All</button>
+            <button id="testSoundBtn" class="btn btn-test">🔊 Test Sound</button>
+            <button id="kiteConfigBtn" class="btn btn-kite">⚙️ Kite Config</button>
+            <button id="kiteLoginBtn" class="btn btn-kite-login" style="display: none;">🔐 Login to Kite</button>
+            <label class="sound-toggle">
+                <input type="checkbox" id="soundToggle" checked>
+                <span>🔔 Sound Notifications</span>
+            </label>
+            <label class="sound-toggle">
+                <input type="checkbox" id="filterAmountToggle">
+                <span>💰 Show Only With Amounts</span>
+            </label>
+        </div>
+
+        <!-- Kite Config Modal -->
+        <div id="kiteModal" class="modal" style="display: none;">
+            <div class="modal-content">
+                <span class="modal-close">&times;</span>
+                <h2>⚙️ Kite API Configuration</h2>
+                <div class="modal-form">
+                    <label>API Key:</label>
+                    <input type="text" id="kiteApiKey" placeholder="Enter your Kite API Key">
+                    <label>API Secret:</label>
+                    <input type="password" id="kiteApiSecret" placeholder="Enter your Kite API Secret">
+                    <label>Redirect URL (HTTPS required):</label>
+                    <input type="text" id="kiteRedirectUrl" placeholder="https://your-domain.com/kite/callback">
+                    <label>Postback URL (HTTPS required):</label>
+                    <input type="text" id="kitePostbackUrl" placeholder="https://your-domain.com/kite/postback">
+                    <button id="saveKiteConfig" class="btn btn-primary">Save Configuration</button>
+                    <p class="modal-info">
+                        <strong>⚠️ HTTPS Required:</strong> Kite requires HTTPS URLs. For local development, use ngrok or similar tunnel service.<br><br>
+                        <strong>Quick Setup with ngrok:</strong><br>
+                        1. Install: <code>brew install ngrok</code><br>
+                        2. Run: <code>ngrok http 8000</code><br>
+                        3. Copy the HTTPS URL (e.g., <code>https://abc123.ngrok.io</code>)<br>
+                        4. Use: <code>https://abc123.ngrok.io/kite/callback</code> and <code>https://abc123.ngrok.io/kite/postback</code><br><br>
+                        See <code>ngrok_setup.md</code> for detailed instructions.<br><br>
+                        Get your API credentials from <a href="https://developers.kite.trade/" target="_blank">Kite Developer Portal</a>
+                    </p>
+                </div>
+            </div>
+        </div>
+
+        <div class="stats">
+            <div class="stat-card">
+                <div class="stat-value" id="totalCount">0</div>
+                <div class="stat-label">Total Announcements</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="newCount">0</div>
+                <div class="stat-label">New Today</div>
+            </div>
+        </div>
+
+        <div class="announcements-container">
+            <h2>Latest Announcements</h2>
+            <div id="announcementsList" class="announcements-list">
+                <div class="empty-state">No announcements yet. Click "Start Monitoring" to begin.</div>
+            </div>
+        </div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
+
