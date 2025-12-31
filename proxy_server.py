@@ -23,6 +23,11 @@ def get_bse_announcements_url():
 # Global dictionary for BSE stock prices (symbol -> closing_price)
 BSE_STOCK_PRICES = {}
 
+# Global KiteConnect instance cache (to avoid recreating on every request)
+KITE_INSTANCE = None
+KITE_INSTANCE_API_KEY = None
+KITE_INSTANCE_ACCESS_TOKEN = None
+
 # Try to import KiteConnect, but make it optional
 try:
     from kiteconnect import KiteConnect
@@ -30,6 +35,39 @@ try:
 except ImportError:
     KITE_AVAILABLE = False
     print("⚠️  KiteConnect not installed. Install with: pip install kiteconnect")
+
+def get_kite_instance():
+    """Get or create KiteConnect instance (cached for performance)"""
+    global KITE_INSTANCE, KITE_INSTANCE_API_KEY, KITE_INSTANCE_ACCESS_TOKEN
+    
+    config = load_kite_config()
+    api_key = config.get('api_key', '')
+    access_token = config.get('access_token', '')
+    
+    if not api_key:
+        return None
+    
+    # Create new instance if:
+    # 1. No instance exists
+    # 2. API key changed
+    # 3. Access token changed (token refreshed)
+    if (KITE_INSTANCE is None or 
+        KITE_INSTANCE_API_KEY != api_key or 
+        KITE_INSTANCE_ACCESS_TOKEN != access_token):
+        
+        if not KITE_AVAILABLE:
+            return None
+        
+        KITE_INSTANCE = KiteConnect(api_key=api_key)
+        if access_token:
+            KITE_INSTANCE.set_access_token(access_token)
+        
+        KITE_INSTANCE_API_KEY = api_key
+        KITE_INSTANCE_ACCESS_TOKEN = access_token
+        
+        print(f"[Kite] Created new KiteConnect instance (API key: {api_key[:10]}..., Token: {access_token[:20] if access_token else 'None'}...)")
+    
+    return KITE_INSTANCE
 
 def load_kite_config():
     """Load Kite API configuration from file or environment variables"""
@@ -473,6 +511,16 @@ class ProxyHandler(BaseHTTPRequestHandler):
             config['access_token'] = data['access_token']
             config['request_token'] = request_token
             
+            # Invalidate Kite instance cache so new token is used immediately
+            global KITE_INSTANCE, KITE_INSTANCE_ACCESS_TOKEN
+            KITE_INSTANCE = None
+            KITE_INSTANCE_ACCESS_TOKEN = None
+            
+            # Invalidate Kite instance cache so new token is used
+            global KITE_INSTANCE, KITE_INSTANCE_ACCESS_TOKEN
+            KITE_INSTANCE = None
+            KITE_INSTANCE_ACCESS_TOKEN = None
+            
             # Save to file (this is critical for persistence)
             try:
                 save_kite_config(config)
@@ -591,13 +639,19 @@ class ProxyHandler(BaseHTTPRequestHandler):
             post_data = self.rfile.read(content_length)
             order_data = json.loads(post_data.decode())
             
-            config = load_kite_config()
-            if not config.get('access_token'):
-                self.send_json_response({'error': 'Not authenticated. Please login first.'}, 401)
-                return
-            
-            kite = KiteConnect(api_key=config['api_key'])
-            kite.set_access_token(config['access_token'])
+            # Get cached KiteConnect instance (faster than creating new one)
+            kite = get_kite_instance()
+            if not kite:
+                config = load_kite_config()
+                if not config.get('access_token'):
+                    self.send_json_response({'error': 'Not authenticated. Please login first.'}, 401)
+                    return
+                if not config.get('api_key'):
+                    self.send_json_response({'error': 'Kite API key not configured'}, 500)
+                    return
+                # Fallback: create new instance if cache failed
+                kite = KiteConnect(api_key=config['api_key'])
+                kite.set_access_token(config['access_token'])
             
             trading_symbol = order_data.get('tradingsymbol', '').upper().strip()
             if not trading_symbol:
@@ -640,19 +694,7 @@ class ProxyHandler(BaseHTTPRequestHandler):
                 'message': f'Order placed successfully for {quantity} shares of {trading_symbol} on {exchange}'
             })
         except Exception as e:
-            instruments = kite.instruments()
-            error_msg = str(e) + " length of instruments is " + str(len(instruments))
-            print(f"[Kite Order] Error: {error_msg}")
-            # Provide more helpful error messages
-            if 'instrument' in error_msg.lower() or 'expired' in error_msg.lower() or 'does not exist' in error_msg.lower():
-                error_msg = (
-                    f"Instrument error: {error_msg}\n\n"
-                    f"This usually means:\n"
-                    f"- The trading symbol '{order_data.get('tradingsymbol', '')}' doesn't exist on the specified exchange\n"
-                    f"- The instrument has expired (for F&O contracts)\n"
-                    f"- The symbol format is incorrect\n\n"
-                    f"Please verify the symbol exists on Kite and try again. lenght is '{len(instruments)}'"
-                )
+            error_msg = str(e)
             self.send_json_response({'error': error_msg}, 500)
     
     def kite_download_instruments(self):
