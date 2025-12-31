@@ -915,10 +915,8 @@ async function kiteLogin() {
 async function testTataSilverOrder() {
     // Check if authenticated
     if (!kiteAuthenticated) {
-        const shouldLogin = confirm('You need to login to Kite first. Would you like to login now?');
-        if (shouldLogin) {
-            kiteLogin();
-        }
+        console.log('[Test Order] Not authenticated, opening login...');
+        kiteLogin();
         return;
     }
     
@@ -926,11 +924,16 @@ async function testTataSilverOrder() {
     const symbol = 'TATSILV';
     const quantity = 1;
     
-    // Confirm order
-    const confirmMsg = `Place test order to buy ${quantity} share(s) of ${symbol} (Tata Silver)?\n\nThis will execute a MARKET BUY order via Kite.`;
-    if (!confirm(confirmMsg)) {
-        return;
+    const btn = document.getElementById('testTataSilverBtn');
+    const originalText = btn ? btn.textContent : '';
+    
+    // Show loading state
+    if (btn) {
+        btn.disabled = true;
+        btn.textContent = '⏳ Placing...';
     }
+    
+    console.log(`[Test Order] Placing order: ${quantity} shares of ${symbol}`);
     
     try {
         const response = await fetch('/api/kite/order', {
@@ -951,22 +954,47 @@ async function testTataSilverOrder() {
         
         const data = await response.json();
         if (data.success) {
-            alert(`✅ Test order placed successfully!\nOrder ID: ${data.order_id}\n${data.message}`);
+            console.log(`[Test Order] ✅ Success! Order ID: ${data.order_id}`);
+            if (btn) {
+                btn.textContent = '✅ Ordered!';
+                btn.style.background = '#10b981';
+                setTimeout(() => {
+                    btn.textContent = originalText;
+                    btn.style.background = '';
+                    btn.disabled = false;
+                }, 2000);
+            }
         } else {
-            alert('❌ Test order failed: ' + (data.error || 'Unknown error'));
+            console.error('[Test Order] ❌ Failed:', data.error);
+            if (btn) {
+                btn.textContent = '❌ Failed';
+                btn.style.background = '#dc2626';
+                setTimeout(() => {
+                    btn.textContent = originalText;
+                    btn.style.background = '';
+                    btn.disabled = false;
+                }, 2000);
+            }
         }
     } catch (error) {
-        alert('❌ Error placing test order: ' + error.message);
+        console.error('[Test Order] ❌ Error:', error.message);
+        if (btn) {
+            btn.textContent = '❌ Error';
+            btn.style.background = '#dc2626';
+            setTimeout(() => {
+                btn.textContent = originalText;
+                btn.style.background = '';
+                btn.disabled = false;
+            }, 2000);
+        }
     }
 }
 
 async function placeKiteOrder(symbol, scripCode, cardId) {
     // Check if authenticated
     if (!kiteAuthenticated) {
-        const shouldLogin = confirm('You need to login to Kite first. Would you like to login now?');
-        if (shouldLogin) {
-            kiteLogin();
-        }
+        console.log('[Order] Not authenticated, opening login...');
+        kiteLogin();
         return;
     }
     
@@ -982,15 +1010,19 @@ async function placeKiteOrder(symbol, scripCode, cardId) {
         }
     }
     
-    // Confirm order
-    const confirmMsg = `Place order to buy ${quantity} share(s) of ${symbol}?\n\nThis will execute a MARKET BUY order via Kite.`;
-    if (!confirm(confirmMsg)) {
-        return;
+    // Find the buy button to show loading state
+    const buyButton = document.querySelector(`button[onclick*="${scripCode}"]`);
+    const originalButtonText = buyButton ? buyButton.textContent : '';
+    
+    // Show loading state on button
+    if (buyButton) {
+        buyButton.disabled = true;
+        buyButton.textContent = '⏳ Placing...';
     }
     
+    console.log(`[Order] Placing order: ${quantity} shares of ${symbol}`);
+    
     try {
-        // Note: Kite uses NSE symbols, you may need to map BSE symbols to NSE
-        // For now, using the symbol as-is (you'll need to adjust based on your mapping)
         const response = await fetch('/api/kite/order', {
             method: 'POST',
             headers: {
@@ -1009,12 +1041,45 @@ async function placeKiteOrder(symbol, scripCode, cardId) {
         
         const data = await response.json();
         if (data.success) {
-            alert(`✅ Order placed successfully!\nOrder ID: ${data.order_id}\n${data.message}`);
+            console.log(`[Order] ✅ Success! Order ID: ${data.order_id}`);
+            // Show success state on button
+            if (buyButton) {
+                buyButton.textContent = '✅ Ordered!';
+                buyButton.style.background = '#10b981';
+                // Reset after 2 seconds
+                setTimeout(() => {
+                    buyButton.textContent = originalButtonText;
+                    buyButton.style.background = '';
+                    buyButton.disabled = false;
+                }, 2000);
+            }
         } else {
-            alert('❌ Order failed: ' + (data.error || 'Unknown error'));
+            console.error('[Order] ❌ Failed:', data.error);
+            // Show error state on button
+            if (buyButton) {
+                buyButton.textContent = '❌ Failed';
+                buyButton.style.background = '#dc2626';
+                // Reset after 2 seconds
+                setTimeout(() => {
+                    buyButton.textContent = originalButtonText;
+                    buyButton.style.background = '';
+                    buyButton.disabled = false;
+                }, 2000);
+            }
         }
     } catch (error) {
-        alert('❌ Error placing order: ' + error.message);
+        console.error('[Order] ❌ Error:', error.message);
+        // Show error state on button
+        if (buyButton) {
+            buyButton.textContent = '❌ Error';
+            buyButton.style.background = '#dc2626';
+            // Reset after 2 seconds
+            setTimeout(() => {
+                buyButton.textContent = originalButtonText;
+                buyButton.style.background = '';
+                buyButton.disabled = false;
+            }, 2000);
+        }
     }
 }
 

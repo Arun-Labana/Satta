@@ -10,233 +10,29 @@ import urllib.parse
 import json
 import webbrowser
 import os
-from datetime import datetime, timedelta
+from urllib.parse import urlparse, parse_qs
+
+# Import modular components
+from config import load_kite_config, save_kite_config
+from bse_client import (
+    get_bse_announcements_url,
+    get_stock_price,
+    get_stock_prices_cache,
+    refresh_stock_prices as refresh_bse_prices,
+    initialize_bse_stock_prices
+)
+from kite_client import (
+    get_login_url,
+    handle_oauth_callback,
+    get_status as get_kite_status,
+    place_order as kite_place_order_func,
+    download_instruments as kite_download_instruments_func,
+    update_config as kite_update_config_func
+)
 
 # Get PORT from environment variable (Render provides this) or default to 8000
 PORT = int(os.environ.get('PORT', 8000))
 
-def get_bse_announcements_url():
-    """Generate BSE announcements URL with today's date"""
-    today = datetime.now().strftime('%Y%m%d')
-    return f'https://api.bseindia.com/BseIndiaAPI/api/AnnSubCategoryGetData/w?pageno=1&strCat=Company+Update&strPrevDate={today}&strScrip=&strSearch=P&strToDate={today}&strType=C&subcategory=Award+of+Order+%2F+Receipt+of+Order'
-
-# Global dictionary for BSE stock prices (symbol -> closing_price)
-BSE_STOCK_PRICES = {}
-
-# Global KiteConnect instance cache (to avoid recreating on every request)
-KITE_INSTANCE = None
-KITE_INSTANCE_API_KEY = None
-KITE_INSTANCE_ACCESS_TOKEN = None
-
-# Try to import KiteConnect, but make it optional
-try:
-    from kiteconnect import KiteConnect
-    KITE_AVAILABLE = True
-except ImportError:
-    KITE_AVAILABLE = False
-    print("⚠️  KiteConnect not installed. Install with: pip install kiteconnect")
-
-def get_kite_instance():
-    """Get or create KiteConnect instance (cached for performance)"""
-    global KITE_INSTANCE, KITE_INSTANCE_API_KEY, KITE_INSTANCE_ACCESS_TOKEN
-    
-    config = load_kite_config()
-    api_key = config.get('api_key', '')
-    access_token = config.get('access_token', '')
-    
-    if not api_key:
-        return None
-    
-    # Create new instance if:
-    # 1. No instance exists
-    # 2. API key changed
-    # 3. Access token changed (token refreshed)
-    if (KITE_INSTANCE is None or 
-        KITE_INSTANCE_API_KEY != api_key or 
-        KITE_INSTANCE_ACCESS_TOKEN != access_token):
-        
-        if not KITE_AVAILABLE:
-            return None
-        
-        KITE_INSTANCE = KiteConnect(api_key=api_key)
-        if access_token:
-            KITE_INSTANCE.set_access_token(access_token)
-        
-        KITE_INSTANCE_API_KEY = api_key
-        KITE_INSTANCE_ACCESS_TOKEN = access_token
-        
-        print(f"[Kite] Created new KiteConnect instance (API key: {api_key[:10]}..., Token: {access_token[:20] if access_token else 'None'}...)")
-    
-    return KITE_INSTANCE
-
-def load_kite_config():
-    """Load Kite API configuration from file or environment variables"""
-    # Start with environment variables (for Render/production)
-    config = {
-        "api_key": os.environ.get('KITE_API_KEY', ''),
-        "api_secret": os.environ.get('KITE_API_SECRET', ''),
-        "access_token": os.environ.get('KITE_ACCESS_TOKEN', ''),
-        "request_token": os.environ.get('KITE_REQUEST_TOKEN', ''),
-        "redirect_url": os.environ.get('KITE_REDIRECT_URL', ''),
-        "postback_url": os.environ.get('KITE_POSTBACK_URL', '')
-    }
-    
-    # Always try to load from file to get access_token (even if env vars exist)
-    # The access_token is dynamic and won't be in env vars
-    if os.path.exists('kite_config.json'):
-        try:
-            with open('kite_config.json', 'r') as f:
-                file_config = json.load(f)
-                # Merge file config, but prioritize env vars for credentials
-                # This allows access_token from file to be loaded even when using env vars
-                if not config.get('api_key'):
-                    config['api_key'] = file_config.get('api_key', '')
-                if not config.get('api_secret'):
-                    config['api_secret'] = file_config.get('api_secret', '')
-                # Always use access_token from file if it exists (it's dynamic)
-                if file_config.get('access_token'):
-                    config['access_token'] = file_config.get('access_token')
-                if file_config.get('request_token'):
-                    config['request_token'] = file_config.get('request_token')
-                # Use file config for URLs if not in env vars
-                if not config.get('redirect_url'):
-                    config['redirect_url'] = file_config.get('redirect_url', '')
-                if not config.get('postback_url'):
-                    config['postback_url'] = file_config.get('postback_url', '')
-        except Exception as e:
-            print(f"[Config] Error loading kite_config.json: {e}")
-    
-    return config
-
-def save_kite_config(config):
-    """Save Kite API configuration"""
-    with open('kite_config.json', 'w') as f:
-        json.dump(config, f, indent=4)
-
-def download_bse_eod_data():
-    """Download BSE end-of-day data file and return dictionary of symbol -> closing_price
-    Handles weekends and public holidays by trying previous trading days.
-    Stops and returns immediately when valid data is found.
-    Uses the correct BSE URL format: BhavCopy_BSE_CM_0_0_0_YYYYMMDD_F_0000.CSV
-    """
-    global BSE_STOCK_PRICES
-    
-    try:
-        import requests
-        import pandas as pd
-        from datetime import date as date_class
-        
-        today = datetime.now()
-        max_days_back = 15
-        
-        print(f"[BSE EOD] Searching for last trading day (checking up to {max_days_back} days back)...")
-        
-        for day_offset in range(1, max_days_back + 1):
-            check_date = today - timedelta(days=day_offset)
-            weekday = check_date.weekday()
-            
-            # Skip weekends (Saturday=5, Sunday=6)
-            if weekday >= 5:
-                continue
-            
-            date_display = check_date.strftime('%Y-%m-%d (%A)')
-            date_str = check_date.strftime('%Y%m%d')
-            
-            # BSE bhavcopy URL format: BhavCopy_BSE_CM_0_0_0_YYYYMMDD_F_0000.CSV
-            file_name = f"BhavCopy_BSE_CM_0_0_0_{date_str}_F_0000.CSV"
-            url = f"https://www.bseindia.com/download/BhavCopy/Equity/{file_name}"
-            
-            print(f"[BSE EOD] Checking {date_display}...")
-            
-            try:
-                headers = {
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
-                }
-                
-                # Download the CSV file
-                response = requests.get(url, headers=headers, stream=True, timeout=30)
-                response.raise_for_status()
-                
-                # Parse CSV using pandas (more reliable)
-                import io
-                df = pd.read_csv(io.StringIO(response.text))
-                
-                # Create dictionary: symbol -> closing price
-                # BSE CSV columns: TckrSymb (symbol), ClsPric (closing price)
-                stock_prices = {}
-                
-                if 'TckrSymb' in df.columns and 'ClsPric' in df.columns:
-                    for _, row in df.iterrows():
-                        symbol = str(row.get('TckrSymb', '')).strip().upper()
-                        close_price = row.get('ClsPric', 0)
-                        
-                        if symbol and close_price:
-                            try:
-                                closing_price = float(close_price)
-                                if closing_price > 0:
-                                    stock_prices[symbol] = closing_price
-                            except (ValueError, TypeError):
-                                continue
-                    
-                    # Validate we got reasonable data
-                    if len(df) > 1000 and len(stock_prices) > 1000:
-                        print(f"[BSE EOD] ✅ Found valid data for {date_display}")
-                        print(f"[BSE EOD] Parsed {len(stock_prices)} stocks from {len(df)} rows")
-                        
-                        # Update cache and return immediately
-                        BSE_STOCK_PRICES = stock_prices
-                        
-                        return stock_prices
-                    else:
-                        print(f"[BSE EOD] Data incomplete for {date_display} ({len(stock_prices)} stocks), trying previous day...")
-                        continue
-                else:
-                    print(f"[BSE EOD] Unexpected CSV format for {date_display}, trying previous day...")
-                    continue
-                    
-            except requests.exceptions.HTTPError as e:
-                if e.response.status_code == 404:
-                    # File doesn't exist - likely holiday, try next day
-                    print(f"[BSE EOD] No file for {date_display} (404) - trying previous day...")
-                    continue
-                else:
-                    print(f"[BSE EOD] HTTP {e.response.status_code} for {date_display}, trying previous day...")
-                    continue
-            except Exception as e:
-                print(f"[BSE EOD] Error downloading for {date_display}: {e}")
-                continue
-        
-        # If we reach here, no valid data found
-        print("[BSE EOD] ❌ Could not find valid trading day data after checking 15 days")
-        return None
-        
-    except ImportError as e:
-        print(f"[BSE EOD] ⚠️ Required package not installed: {e}")
-        print("[BSE EOD] Install with: pip install requests pandas")
-        return None
-    except Exception as e:
-        print(f"[BSE EOD] Fatal error: {e}")
-        import traceback
-        traceback.print_exc()
-        return None
-
-def initialize_bse_stock_prices():
-    """Initialize BSE stock prices cache on server startup (non-blocking)"""
-    import threading
-    
-    def fetch_in_background():
-        print("[BSE EOD] Initializing stock prices cache on server startup...")
-        result = download_bse_eod_data()
-        if result:
-            print(f"[BSE EOD] ✅ Successfully initialized cache with {len(BSE_STOCK_PRICES)} stocks")
-        else:
-            print("[BSE EOD] ⚠️ Failed to initialize cache on startup")
-            print("[BSE EOD] 💡 You can manually refresh using the refresh endpoint later")
-    
-    # Start fetching in background thread so server can start immediately
-    thread = threading.Thread(target=fetch_in_background, daemon=True)
-    thread.start()
 
 class ProxyHandler(BaseHTTPRequestHandler):
     def do_GET(self):
@@ -337,7 +133,6 @@ class ProxyHandler(BaseHTTPRequestHandler):
     def proxy_stock_price(self):
         try:
             # Extract scrip code and symbol from query parameters
-            from urllib.parse import urlparse, parse_qs
             parsed = urlparse(self.path)
             params = parse_qs(parsed.query)
             scrip_code = params.get('scrip', [None])[0]
@@ -346,132 +141,43 @@ class ProxyHandler(BaseHTTPRequestHandler):
             if not scrip_code:
                 raise ValueError('Scrip code is required')
             
-            # Only use BSE_STOCK_PRICES dictionary (no fallback APIs)
-            if symbol and BSE_STOCK_PRICES:
-                symbol_upper = symbol.upper()
-                if symbol_upper in BSE_STOCK_PRICES:
-                    price = BSE_STOCK_PRICES[symbol_upper]
+            # Use BSE stock prices cache
+            if symbol:
+                price = get_stock_price(symbol)
+                if price:
                     result = {
                         'price': price,
                         'source': 'BSE_EOD_Cache',
-                        'symbol': symbol_upper
+                        'symbol': symbol.upper()
                     }
-                    response_data = json.dumps(result).encode()
-                    self.send_response(200)
-                    self.send_header('Content-Type', 'application/json')
-                    self.send_header('Access-Control-Allow-Origin', '*')
-                    self.send_header('Content-Length', str(len(response_data)))
-                    self.end_headers()
-                    self.wfile.write(response_data)
+                    self.send_json_response(result)
                     return
             
             # If not found in dictionary, return error
-            # TODO: Uncomment fallback methods below if needed in future
-            
-            # # Method 2: Try BSE StockTrading API (has WAP which is close to current price)
-            # try:
-            #     price_url = f'https://api.bseindia.com/BseIndiaAPI/api/StockTrading/w?scripcode={scrip_code}&flag=&seriesid='
-            #     req = urllib.request.Request(price_url)
-            #     req.add_header('User-Agent', 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36')
-            #     req.add_header('Referer', 'https://www.bseindia.com/')
-            #     
-            #     with urllib.request.urlopen(req, timeout=5) as response:
-            #         data = json.loads(response.read().decode())
-            #         if data and 'WAP' in data:
-            #             # Return WAP (Weighted Average Price) as current price
-            #             result = {
-            #                 'price': float(data.get('WAP', 0)),
-            #                 'source': 'BSE_WAP',
-            #                 'data': data
-            #             }
-            #             response_data = json.dumps(result).encode()
-            #             self.send_response(200)
-            #             self.send_header('Content-Type', 'application/json')
-            #             self.send_header('Access-Control-Allow-Origin', '*')
-            #             self.send_header('Content-Length', str(len(response_data)))
-            #             self.end_headers()
-            #             self.wfile.write(response_data)
-            #             return
-            # except:
-            #     pass
-            # 
-            # # Method 3: Try Yahoo Finance if symbol is available
-            # if symbol:
-            #     try:
-            #         # BSE stocks on Yahoo Finance use .BO suffix
-            #         yahoo_symbol = f"{symbol.upper()}.BO"
-            #         yahoo_url = f'https://query1.finance.yahoo.com/v8/finance/chart/{yahoo_symbol}?interval=1d&range=1d'
-            #         req = urllib.request.Request(yahoo_url)
-            #         req.add_header('User-Agent', 'Mozilla/5.0')
-            #         
-            #         with urllib.request.urlopen(req, timeout=5) as response:
-            #             data = json.loads(response.read().decode())
-            #             if data and 'chart' in data and 'result' in data['chart']:
-            #                 result_data = data['chart']['result'][0]
-            #                 if 'meta' in result_data and 'regularMarketPrice' in result_data['meta']:
-            #                     price = result_data['meta']['regularMarketPrice']
-            #                     result = {
-            #                         'price': price,
-            #                         'source': 'Yahoo_Finance',
-            #                         'currency': result_data['meta'].get('currency', 'INR')
-            #                     }
-            #                     response_data = json.dumps(result).encode()
-            #                     self.send_response(200)
-            #                     self.send_header('Content-Type', 'application/json')
-            #                     self.send_header('Access-Control-Allow-Origin', '*')
-            #                     self.send_header('Content-Length', str(len(response_data)))
-            #                     self.end_headers()
-            #                     self.wfile.write(response_data)
-            #                     return
-            #     except:
-            #         pass
-            
-            error_data = json.dumps({
+            error_data = {
                 'error': 'Price not available in cache',
                 'scrip_code': scrip_code,
                 'symbol': symbol,
                 'message': 'Stock price not found in BSE EOD cache. Please refresh the cache.'
-            }).encode()
-            self.send_response(404)
-            self.send_header('Content-Type', 'application/json')
-            self.send_header('Access-Control-Allow-Origin', '*')
-            self.send_header('Content-Length', str(len(error_data)))
-            self.end_headers()
-            self.wfile.write(error_data)
+            }
+            self.send_json_response(error_data, 404)
             
         except Exception as e:
-            self.send_response(500)
-            self.send_header('Content-Type', 'application/json')
-            self.send_header('Access-Control-Allow-Origin', '*')
-            self.end_headers()
-            error_data = json.dumps({'error': str(e)}).encode()
-            self.wfile.write(error_data)
+            self.send_json_response({'error': str(e)}, 500)
     
     def refresh_stock_prices(self):
         """Refresh BSE stock prices dictionary"""
         try:
-            global BSE_STOCK_PRICES
-            
             print("[BSE EOD] Manual refresh requested")
             
-            # Run in background thread to avoid blocking
-            import threading
-            
-            def refresh_in_background():
-                result = download_bse_eod_data()
-                if result:
-                    print(f"[BSE EOD] ✅ Successfully refreshed cache with {len(BSE_STOCK_PRICES)} stocks")
-                else:
-                    print("[BSE EOD] ⚠️ Failed to refresh cache")
-            
-            thread = threading.Thread(target=refresh_in_background, daemon=True)
-            thread.start()
+            # Refresh in background and get current count
+            current_count = refresh_bse_prices()
             
             # Return immediately with current status
             self.send_json_response({
                 'success': True,
                 'message': 'Stock prices refresh started in background',
-                'current_count': len(BSE_STOCK_PRICES),
+                'current_count': current_count,
                 'status': 'Refreshing...'
             })
         except Exception as e:
@@ -486,12 +192,6 @@ class ProxyHandler(BaseHTTPRequestHandler):
                 self.send_json_response({'error': 'API key not configured'}, 400)
                 return
             
-            if not KITE_AVAILABLE:
-                self.send_json_response({'error': 'KiteConnect library not installed'}, 500)
-                return
-            
-            kite = KiteConnect(api_key=config['api_key'])
-            
             # Use redirect_url from config if available, otherwise construct from request
             redirect_url = config.get('redirect_url')
             if not redirect_url:
@@ -502,7 +202,7 @@ class ProxyHandler(BaseHTTPRequestHandler):
                 else:
                     redirect_url = 'http://localhost:8000/kite/callback'
             
-            login_url = kite.login_url()
+            login_url = get_login_url(redirect_url)
             
             self.send_json_response({
                 'login_url': login_url,
@@ -514,10 +214,7 @@ class ProxyHandler(BaseHTTPRequestHandler):
     
     def kite_callback(self):
         """Handle Kite OAuth callback"""
-        global KITE_INSTANCE, KITE_INSTANCE_ACCESS_TOKEN
-        
         try:
-            from urllib.parse import urlparse, parse_qs
             parsed = urlparse(self.path)
             params = parse_qs(parsed.query)
             request_token = params.get('request_token', [None])[0]
@@ -528,38 +225,10 @@ class ProxyHandler(BaseHTTPRequestHandler):
                 self.send_error(400, 'Missing request_token')
                 return
             
-            config = load_kite_config()
-            if not config.get('api_key') or not config.get('api_secret'):
-                print("[Kite Callback] ERROR: API credentials not configured")
-                self.send_error(400, 'API credentials not configured')
-                return
-            
-            if not KITE_AVAILABLE:
-                self.send_error(500, 'KiteConnect library not installed')
-                return
-            
-            kite = KiteConnect(api_key=config['api_key'])
-            data = kite.generate_session(request_token, api_secret=config['api_secret'])
+            # Handle OAuth callback
+            data = handle_oauth_callback(request_token)
             
             print(f"[Kite Callback] Session generated, access_token received: {bool(data.get('access_token'))}")
-            
-            # Save access token
-            config['access_token'] = data['access_token']
-            config['request_token'] = request_token
-            
-            # Invalidate Kite instance cache so new token is used immediately
-            KITE_INSTANCE = None
-            KITE_INSTANCE_ACCESS_TOKEN = None
-            
-            # Save to file (this is critical for persistence)
-            try:
-                save_kite_config(config)
-                print(f"[Kite Callback] Config saved to kite_config.json successfully")
-            except Exception as e:
-                print(f"[Kite Callback] WARNING: Failed to save config to file: {e}")
-                # If file save fails, token is only in memory for this request
-                # On Render, file system might be read-only, so we need another solution
-                pass
             
             # Redirect to success page
             html = """
@@ -634,26 +303,18 @@ class ProxyHandler(BaseHTTPRequestHandler):
     def kite_status(self):
         """Check Kite authentication status"""
         try:
-            config = load_kite_config()
-            is_configured = bool(config.get('api_key') and config.get('api_secret'))
-            is_authenticated = bool(config.get('access_token'))
-            has_env_vars = bool(os.environ.get('KITE_API_KEY') and os.environ.get('KITE_API_SECRET'))
+            status = get_kite_status()
             
             print(f"[Kite Status] Request received")
-            print(f"[Kite Status] configured: {is_configured}, authenticated: {is_authenticated}")
-            print(f"[Kite Status] has_env_vars: {has_env_vars}")
+            print(f"[Kite Status] configured: {status['configured']}, authenticated: {status['authenticated']}")
+            print(f"[Kite Status] has_env_vars: {status['has_env_vars']}")
+            
+            config = load_kite_config()
             print(f"[Kite Status] access_token present: {bool(config.get('access_token'))}")
             print(f"[Kite Status] access_token length: {len(config.get('access_token', ''))}")
             print(f"[Kite Status] File exists: {os.path.exists('kite_config.json')}")
             
-            self.send_json_response({
-                'configured': is_configured,
-                'authenticated': is_authenticated,
-                'kite_available': KITE_AVAILABLE,
-                'has_env_vars': has_env_vars,
-                'redirect_url': config.get('redirect_url', ''),
-                'postback_url': config.get('postback_url', '')
-            })
+            self.send_json_response(status)
         except Exception as e:
             print(f"[Kite Status] Error: {e}")
             self.send_json_response({'error': str(e)}, 500)
@@ -661,67 +322,15 @@ class ProxyHandler(BaseHTTPRequestHandler):
     def kite_place_order(self):
         """Place order via Kite API with instrument validation"""
         try:
-            if not KITE_AVAILABLE:
-                self.send_json_response({'error': 'KiteConnect library not installed'}, 500)
-                return
-            
             content_length = int(self.headers['Content-Length'])
             post_data = self.rfile.read(content_length)
             order_data = json.loads(post_data.decode())
             
-            # Get cached KiteConnect instance (faster than creating new one)
-            kite = get_kite_instance()
-            if not kite:
-                config = load_kite_config()
-                if not config.get('access_token'):
-                    self.send_json_response({'error': 'Not authenticated. Please login first.'}, 401)
-                    return
-                if not config.get('api_key'):
-                    self.send_json_response({'error': 'Kite API key not configured'}, 500)
-                    return
-                # Fallback: create new instance if cache failed
-                kite = KiteConnect(api_key=config['api_key'])
-                kite.set_access_token(config['access_token'])
-            
-            trading_symbol = order_data.get('tradingsymbol', '').upper().strip()
-            if not trading_symbol:
-                self.send_json_response({'error': 'Trading symbol is required'}, 400)
-                return
-            
-            quantity = int(order_data.get('quantity', 1))
-            if quantity <= 0:
-                self.send_json_response({'error': 'Quantity must be greater than 0'}, 400)
-                return
-            
-            # Get exchange, default to NSE (Kite primarily uses NSE)
-            exchange = order_data.get('exchange', 'NSE').upper()
-            if exchange not in ['NSE', 'BSE']:
-                exchange = 'NSE'
-            
-            print(f"[Kite Order] Placing order: {trading_symbol} on {exchange}, qty: {quantity}")
-            
-            # Place order directly - let Kite API handle validation (faster, no extra API calls)
-            # Validity: DAY (valid for entire trading day) or IOC (Immediate or Cancel)
-            # For MARKET orders, IOC is recommended; for LIMIT orders, DAY is common
-            order_type = order_data.get('order_type', 'MARKET')
-            default_validity = 'IOC' if order_type == 'MARKET' else 'DAY'
-            validity = order_data.get('validity', default_validity)
-            
-            order_id = kite.place_order(
-                tradingsymbol=trading_symbol,
-                exchange=exchange,
-                transaction_type=order_data.get('transaction_type', 'BUY'),
-                quantity=quantity,
-                order_type=order_type,
-                product=order_data.get('product', 'CNC'),  # CNC for delivery
-                variety=order_data.get('variety', 'regular'),  # regular, amo, co, bo, iceberg
-                validity=validity  # DAY or IOC - required parameter
-            )
+            result = kite_place_order_func(order_data)
             
             self.send_json_response({
                 'success': True,
-                'order_id': order_id,
-                'message': f'Order placed successfully for {quantity} shares of {trading_symbol} on {exchange}'
+                **result
             })
         except Exception as e:
             error_msg = str(e)
@@ -730,56 +339,16 @@ class ProxyHandler(BaseHTTPRequestHandler):
     def kite_download_instruments(self):
         """Download all instruments as CSV file"""
         try:
-            if not KITE_AVAILABLE:
-                self.send_json_response({'error': 'KiteConnect library not installed'}, 500)
-                return
-            
-            config = load_kite_config()
-            if not config.get('access_token'):
-                self.send_json_response({'error': 'Not authenticated. Please login first.'}, 401)
-                return
-            
-            kite = KiteConnect(api_key=config['api_key'])
-            kite.set_access_token(config['access_token'])
-            
             # Get exchange filter from query params
-            from urllib.parse import urlparse, parse_qs
             parsed = urlparse(self.path)
             params = parse_qs(parsed.query)
             exchange = params.get('exchange', [None])[0]
-            
-            # Fetch instruments
-            instruments = kite.instruments(exchange=exchange) if exchange else kite.instruments()
-            
-            # Filter for equity only if requested
             filter_eq = params.get('equity_only', ['false'])[0].lower() == 'true'
-            if filter_eq:
-                instruments = [inst for inst in instruments if inst.get('instrument_type') == 'EQ']
             
-            # Convert to CSV
-            import csv
-            import io
-            
-            if not instruments:
-                self.send_json_response({'error': 'No instruments found'}, 404)
-                return
-            
-            # Create CSV in memory
-            output = io.StringIO()
-            fieldnames = ['tradingsymbol', 'name', 'exchange', 'instrument_type', 'segment', 'strike', 'tick_size', 'lot_size', 'expiry']
-            writer = csv.DictWriter(output, fieldnames=fieldnames, extrasaction='ignore')
-            
-            writer.writeheader()
-            for inst in instruments:
-                writer.writerow(inst)
-            
-            csv_content = output.getvalue()
-            output.close()
-            
-            # Generate filename
-            exchange_suffix = f"_{exchange}" if exchange else ""
-            equity_suffix = "_equity_only" if filter_eq else ""
-            filename = f"kite_instruments{exchange_suffix}{equity_suffix}.csv"
+            csv_content, filename = kite_download_instruments_func(
+                exchange=exchange,
+                equity_only=filter_eq
+            )
             
             # Send CSV file
             self.send_response(200)
@@ -798,22 +367,11 @@ class ProxyHandler(BaseHTTPRequestHandler):
     def kite_update_config(self):
         """Update Kite configuration"""
         try:
-            # Check if using environment variables (production)
-            if os.environ.get('KITE_API_KEY'):
-                self.send_json_response({
-                    'success': False,
-                    'message': 'Configuration is managed via environment variables in Render. Update them in Render dashboard instead.',
-                    'has_env_vars': True
-                })
-                return
-            
             content_length = int(self.headers['Content-Length'])
             post_data = self.rfile.read(content_length)
             new_config = json.loads(post_data.decode())
             
-            config = load_kite_config()
-            config.update(new_config)
-            save_kite_config(config)
+            kite_update_config_func(new_config)
             
             self.send_json_response({'success': True, 'message': 'Configuration updated'})
         except Exception as e:
@@ -832,6 +390,7 @@ class ProxyHandler(BaseHTTPRequestHandler):
     def log_message(self, format, *args):
         # Custom logging
         print(f"[{self.address_string()}] {format % args}")
+
 
 def main():
     os.chdir(os.path.dirname(os.path.abspath(__file__)))
@@ -865,6 +424,6 @@ def main():
     except KeyboardInterrupt:
         print("\n\n👋 Server stopped")
 
+
 if __name__ == "__main__":
     main()
-
