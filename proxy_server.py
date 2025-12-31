@@ -298,7 +298,7 @@ class ProxyHandler(BaseHTTPRequestHandler):
             if not scrip_code:
                 raise ValueError('Scrip code is required')
             
-            # Method 1: Try BSE_STOCK_PRICES dictionary first (fastest, cached data)
+            # Only use BSE_STOCK_PRICES dictionary (no fallback APIs)
             if symbol and BSE_STOCK_PRICES:
                 symbol_upper = symbol.upper()
                 if symbol_upper in BSE_STOCK_PRICES:
@@ -317,66 +317,73 @@ class ProxyHandler(BaseHTTPRequestHandler):
                     self.wfile.write(response_data)
                     return
             
-            # Method 2: Try BSE StockTrading API (has WAP which is close to current price)
-            try:
-                price_url = f'https://api.bseindia.com/BseIndiaAPI/api/StockTrading/w?scripcode={scrip_code}&flag=&seriesid='
-                req = urllib.request.Request(price_url)
-                req.add_header('User-Agent', 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36')
-                req.add_header('Referer', 'https://www.bseindia.com/')
-                
-                with urllib.request.urlopen(req, timeout=5) as response:
-                    data = json.loads(response.read().decode())
-                    if data and 'WAP' in data:
-                        # Return WAP (Weighted Average Price) as current price
-                        result = {
-                            'price': float(data.get('WAP', 0)),
-                            'source': 'BSE_WAP',
-                            'data': data
-                        }
-                        response_data = json.dumps(result).encode()
-                        self.send_response(200)
-                        self.send_header('Content-Type', 'application/json')
-                        self.send_header('Access-Control-Allow-Origin', '*')
-                        self.send_header('Content-Length', str(len(response_data)))
-                        self.end_headers()
-                        self.wfile.write(response_data)
-                        return
-            except:
-                pass
+            # If not found in dictionary, return error
+            # TODO: Uncomment fallback methods below if needed in future
             
-            # Method 2: Try Yahoo Finance if symbol is available
-            if symbol:
-                try:
-                    # BSE stocks on Yahoo Finance use .BO suffix
-                    yahoo_symbol = f"{symbol.upper()}.BO"
-                    yahoo_url = f'https://query1.finance.yahoo.com/v8/finance/chart/{yahoo_symbol}?interval=1d&range=1d'
-                    req = urllib.request.Request(yahoo_url)
-                    req.add_header('User-Agent', 'Mozilla/5.0')
-                    
-                    with urllib.request.urlopen(req, timeout=5) as response:
-                        data = json.loads(response.read().decode())
-                        if data and 'chart' in data and 'result' in data['chart']:
-                            result_data = data['chart']['result'][0]
-                            if 'meta' in result_data and 'regularMarketPrice' in result_data['meta']:
-                                price = result_data['meta']['regularMarketPrice']
-                                result = {
-                                    'price': price,
-                                    'source': 'Yahoo_Finance',
-                                    'currency': result_data['meta'].get('currency', 'INR')
-                                }
-                                response_data = json.dumps(result).encode()
-                                self.send_response(200)
-                                self.send_header('Content-Type', 'application/json')
-                                self.send_header('Access-Control-Allow-Origin', '*')
-                                self.send_header('Content-Length', str(len(response_data)))
-                                self.end_headers()
-                                self.wfile.write(response_data)
-                                return
-                except:
-                    pass
+            # # Method 2: Try BSE StockTrading API (has WAP which is close to current price)
+            # try:
+            #     price_url = f'https://api.bseindia.com/BseIndiaAPI/api/StockTrading/w?scripcode={scrip_code}&flag=&seriesid='
+            #     req = urllib.request.Request(price_url)
+            #     req.add_header('User-Agent', 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36')
+            #     req.add_header('Referer', 'https://www.bseindia.com/')
+            #     
+            #     with urllib.request.urlopen(req, timeout=5) as response:
+            #         data = json.loads(response.read().decode())
+            #         if data and 'WAP' in data:
+            #             # Return WAP (Weighted Average Price) as current price
+            #             result = {
+            #                 'price': float(data.get('WAP', 0)),
+            #                 'source': 'BSE_WAP',
+            #                 'data': data
+            #             }
+            #             response_data = json.dumps(result).encode()
+            #             self.send_response(200)
+            #             self.send_header('Content-Type', 'application/json')
+            #             self.send_header('Access-Control-Allow-Origin', '*')
+            #             self.send_header('Content-Length', str(len(response_data)))
+            #             self.end_headers()
+            #             self.wfile.write(response_data)
+            #             return
+            # except:
+            #     pass
+            # 
+            # # Method 3: Try Yahoo Finance if symbol is available
+            # if symbol:
+            #     try:
+            #         # BSE stocks on Yahoo Finance use .BO suffix
+            #         yahoo_symbol = f"{symbol.upper()}.BO"
+            #         yahoo_url = f'https://query1.finance.yahoo.com/v8/finance/chart/{yahoo_symbol}?interval=1d&range=1d'
+            #         req = urllib.request.Request(yahoo_url)
+            #         req.add_header('User-Agent', 'Mozilla/5.0')
+            #         
+            #         with urllib.request.urlopen(req, timeout=5) as response:
+            #             data = json.loads(response.read().decode())
+            #             if data and 'chart' in data and 'result' in data['chart']:
+            #                 result_data = data['chart']['result'][0]
+            #                 if 'meta' in result_data and 'regularMarketPrice' in result_data['meta']:
+            #                     price = result_data['meta']['regularMarketPrice']
+            #                     result = {
+            #                         'price': price,
+            #                         'source': 'Yahoo_Finance',
+            #                         'currency': result_data['meta'].get('currency', 'INR')
+            #                     }
+            #                     response_data = json.dumps(result).encode()
+            #                     self.send_response(200)
+            #                     self.send_header('Content-Type', 'application/json')
+            #                     self.send_header('Access-Control-Allow-Origin', '*')
+            #                     self.send_header('Content-Length', str(len(response_data)))
+            #                     self.end_headers()
+            #                     self.wfile.write(response_data)
+            #                     return
+            #     except:
+            #         pass
             
-            # If all methods fail, return error
-            error_data = json.dumps({'error': 'Price not available', 'scrip_code': scrip_code}).encode()
+            error_data = json.dumps({
+                'error': 'Price not available in cache',
+                'scrip_code': scrip_code,
+                'symbol': symbol,
+                'message': 'Stock price not found in BSE EOD cache. Please refresh the cache.'
+            }).encode()
             self.send_response(404)
             self.send_header('Content-Type', 'application/json')
             self.send_header('Access-Control-Allow-Origin', '*')
