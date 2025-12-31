@@ -288,7 +288,18 @@ class ProxyHandler(BaseHTTPRequestHandler):
             # Save access token
             config['access_token'] = data['access_token']
             config['request_token'] = request_token
-            save_kite_config(config)
+            
+            # If using environment variables, try to save to file anyway (for persistence)
+            # In production, you might want to store this in a database or update env var
+            try:
+                save_kite_config(config)
+            except:
+                # If file save fails (e.g., read-only filesystem on Render), that's okay
+                # Token is in memory and will work for this session
+                pass
+            
+            # Store access token in a way that persists across requests
+            # For now, we'll save to file. For production, consider database or env var update
             
             # Redirect to success page
             html = """
@@ -298,7 +309,13 @@ class ProxyHandler(BaseHTTPRequestHandler):
             <body style="font-family: Arial; text-align: center; padding: 50px;">
                 <h1 style="color: green;">✅ Authentication Successful!</h1>
                 <p>You can now close this window and return to the dashboard.</p>
-                <script>setTimeout(() => window.close(), 3000);</script>
+                <script>
+                    // Notify parent window about successful authentication
+                    if (window.opener) {
+                        window.opener.postMessage({ type: 'kite_auth_success' }, '*');
+                    }
+                    setTimeout(() => window.close(), 2000);
+                </script>
             </body>
             </html>
             """

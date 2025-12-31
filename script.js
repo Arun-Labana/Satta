@@ -55,6 +55,20 @@ document.addEventListener('DOMContentLoaded', () => {
         kiteLoginBtn.addEventListener('click', kiteLogin);
     }
     
+    // Listen for authentication success message from popup
+    window.addEventListener('message', (event) => {
+        if (event.data && event.data.type === 'kite_auth_success') {
+            // Wait a moment for server to save token, then check status
+            setTimeout(() => {
+                checkKiteStatus();
+            }, 1000);
+            // Also check again after a longer delay to ensure it's updated
+            setTimeout(() => {
+                checkKiteStatus();
+            }, 2000);
+        }
+    });
+    
     // Modal handlers
     const modal = document.getElementById('kiteModal');
     const closeBtn = document.querySelector('.modal-close');
@@ -751,6 +765,7 @@ async function checkKiteStatus() {
             if (data.configured && !data.authenticated) {
                 kiteLoginBtn.style.display = 'inline-block';
                 kiteLoginBtn.textContent = '🔐 Login to Kite';
+                kiteLoginBtn.style.background = ''; // Reset background
             } else if (data.authenticated) {
                 kiteLoginBtn.style.display = 'inline-block';
                 kiteLoginBtn.textContent = '✅ Kite Connected';
