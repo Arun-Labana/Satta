@@ -55,6 +55,12 @@ document.addEventListener('DOMContentLoaded', () => {
         kiteLoginBtn.addEventListener('click', kiteLogin);
     }
     
+    // Test Tata Silver order button
+    const testTataSilverBtn = document.getElementById('testTataSilverBtn');
+    if (testTataSilverBtn) {
+        testTataSilverBtn.addEventListener('click', testTataSilverOrder);
+    }
+    
     // Listen for authentication success message from popup
     window.addEventListener('message', (event) => {
         console.log('[Kite Auth] Received message:', event.data, 'from origin:', event.origin);
@@ -255,12 +261,20 @@ function processApiResponse(data) {
         return;
     }
     
+    // Reverse the order so most recent is first
+    announcements = announcements.reverse();
+    
     // Process for new announcements
     processAnnouncements(announcements);
     
-    // On first load, render all announcements
+    // On first load, render all announcements (filtered to only show those with amounts)
     if (allAnnouncements.length === 0 && announcements.length > 0) {
-        announcements.forEach(announcement => {
+        // Filter to only show announcements with amounts
+        const announcementsWithAmounts = announcements.filter(announcement => {
+            return extractRupeeAmount(announcement) !== null;
+        });
+        
+        announcementsWithAmounts.forEach(announcement => {
             const id = createAnnouncementId(announcement);
             seenAnnouncementIds.add(id);
             allAnnouncements.push({ ...announcement, id, isNew: false });
@@ -311,6 +325,12 @@ function processAnnouncements(announcements) {
     const newAnnouncements = [];
     
     announcements.forEach(announcement => {
+        // Only process announcements that have amounts
+        const rupeeAmount = extractRupeeAmount(announcement);
+        if (!rupeeAmount) {
+            return; // Skip announcements without amounts
+        }
+        
         // Create a unique ID from announcement data
         const id = createAnnouncementId(announcement);
         
@@ -876,6 +896,53 @@ async function kiteLogin() {
         }
     } catch (error) {
         alert('Error: ' + error.message);
+    }
+}
+
+async function testTataSilverOrder() {
+    // Check if authenticated
+    if (!kiteAuthenticated) {
+        const shouldLogin = confirm('You need to login to Kite first. Would you like to login now?');
+        if (shouldLogin) {
+            kiteLogin();
+        }
+        return;
+    }
+    
+    // Tata Silver NSE symbol
+    const symbol = 'TATASILV';
+    const quantity = 1;
+    
+    // Confirm order
+    const confirmMsg = `Place test order to buy ${quantity} share(s) of ${symbol} (Tata Silver)?\n\nThis will execute a MARKET BUY order via Kite.`;
+    if (!confirm(confirmMsg)) {
+        return;
+    }
+    
+    try {
+        const response = await fetch('/api/kite/order', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                symbol: symbol,
+                exchange: 'NSE',
+                quantity: quantity,
+                transaction_type: 'BUY',
+                order_type: 'MARKET',
+                product: 'CNC'
+            })
+        });
+        
+        const data = await response.json();
+        if (data.success) {
+            alert(`✅ Test order placed successfully!\nOrder ID: ${data.order_id}\n${data.message}`);
+        } else {
+            alert('❌ Test order failed: ' + (data.error || 'Unknown error'));
+        }
+    } catch (error) {
+        alert('❌ Error placing test order: ' + error.message);
     }
 }
 
