@@ -378,8 +378,19 @@ class ProxyHandler(BaseHTTPRequestHandler):
                     more = (announcement.get('MORE') or '').lower()
                     text = f"{headline} {more}"
                     
-                    # Check for amount patterns
-                    has_amount = bool(re.search(r'(?:rs\.?|inr|₹)\s*[\d,]+\s*(?:crore|crores|cr|lakh|lakhs)', text, re.I))
+                    # Check for amount patterns - improved to catch plain numbers and various formats
+                    # Pattern 1: Rs./INR/₹ followed by number (with decimals) and crore/lakh
+                    pattern1 = r'(?:rs\.?|inr|₹)\s*[\d,]+\.?\d*\s*(?:crore|crores|cr|lakh|lakhs|lac)'
+                    # Pattern 2: Rs./INR/₹ followed by number (plain, without crore/lakh suffix)
+                    # This catches formats like "Rs. 22,39,05,000/-" or "worth Rs. 1000000"
+                    # Requires at least 6 digits (to avoid matching small numbers like "10 MVA")
+                    pattern2 = r'(?:rs\.?|inr|₹|worth|value)\s*(?:rs\.?|inr|₹)?\s*[\d,]{6,}\s*(?:/-|\(|incl|from|for|to|and|or|$)'
+                    # Pattern 3: Number followed by crore/lakh and rupee indicators
+                    pattern3 = r'[\d,]+\.?\d*\s*(?:crore|crores|cr|lakh|lakhs|lac)\s*(?:rupee|rupees|rs\.?|inr|₹)'
+                    
+                    has_amount = bool(re.search(pattern1, text, re.I) or 
+                                     re.search(pattern2, text, re.I) or 
+                                     re.search(pattern3, text, re.I))
                     if not has_amount:
                         continue  # Skip announcements without amounts
                     
