@@ -122,16 +122,24 @@ class ProxyHandler(BaseHTTPRequestHandler):
                 data = response.read()
                 announcements_data = json.loads(data.decode())
                 
+                # Capture polled time (when we fetched this data from BSE API)
+                polled_time = datetime.now(IST).isoformat()
+                
+                # Add polled time to response metadata
+                if isinstance(announcements_data, dict):
+                    announcements_data['_polledTime'] = polled_time
+                
                 # Process announcements and auto-place orders
                 self._process_announcements_for_auto_order(announcements_data)
                 
                 # Send response
+                response_data = json.dumps(announcements_data).encode()
                 self.send_response(200)
                 self.send_header('Content-Type', 'application/json')
                 self.send_header('Access-Control-Allow-Origin', '*')
-                self.send_header('Content-Length', str(len(data)))
+                self.send_header('Content-Length', str(len(response_data)))
                 self.end_headers()
-                self.wfile.write(data)
+                self.wfile.write(response_data)
         except urllib.error.HTTPError as e:
             self.send_response(e.code)
             self.send_header('Content-Type', 'application/json')
@@ -340,6 +348,11 @@ class ProxyHandler(BaseHTTPRequestHandler):
         """Process announcements and auto-place orders for those with amounts and DissemDT < 30s"""
         import re
         
+        # Check if auto-order placement is enabled via environment variable
+        auto_place_enabled = os.environ.get('AUTO_PLACE_ORDERS', 'false').lower() in ('true', '1', 'yes')
+        if not auto_place_enabled:
+            return  # Auto-order placement disabled
+        
         try:
             # Get announcements array
             announcements = []
@@ -448,7 +461,8 @@ class ProxyHandler(BaseHTTPRequestHandler):
                             'transaction_type': 'BUY',
                             'order_type': 'MARKET',
                             'product': 'CNC',
-                            'variety': 'regular'
+                            'variety': 'regular',
+                            'validity': 'DAY'  # Valid for entire trading day
                         }
                         result = kite_place_order_func(order_data)
                         print(f"[Auto-Order] ✅ Order placed successfully! Order ID: {result.get('order_id')}")

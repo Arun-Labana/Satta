@@ -284,6 +284,12 @@ function processApiResponse(data) {
     // Reverse the order so most recent is first
     announcements = announcements.reverse();
     
+    // Get polled time from backend (when backend fetched from BSE API)
+    const polledTime = data._polledTime || new Date().toISOString();
+    
+    // Add polled time to each announcement
+    announcements = announcements.map(ann => ({ ...ann, _polledTime: polledTime }));
+    
     // Process for new announcements
     processAnnouncements(announcements);
     
@@ -515,7 +521,8 @@ function renderAnnouncement(announcement, isNew = false) {
     card.dataset.id = announcement.id;
     
     const title = announcement.NEWS_SUB || announcement.SLONGNAME || 'No Title';
-    const date = formatDate(announcement.DT_TM);
+    const orderReceivedDate = formatDate(announcement.DT_TM);
+    const polledDate = announcement._polledTime ? formatDate(announcement._polledTime) : 'N/A';
     const company = announcement.SLONGNAME || announcement.SCRIP_CD || 'N/A';
     const scripCode = announcement.SCRIP_CD || 'N/A';
     const headline = announcement.HEADLINE || '';
@@ -538,7 +545,10 @@ function renderAnnouncement(announcement, isNew = false) {
                 ${isNew ? '<span class="new-badge">NEW</span>' : ''}
                 ${hasAmount ? '<span class="amount-badge">💰 Amount</span>' : ''}
             </div>
-            <div class="announcement-date">${date}</div>
+            <div class="announcement-date">
+                <div>Order Received: ${orderReceivedDate}</div>
+                <div style="font-size: 0.85em; opacity: 0.7; margin-top: 2px;">Polled: ${polledDate}</div>
+            </div>
         </div>
         ${symbol ? `
         <div class="symbol-badge">
@@ -671,7 +681,8 @@ function formatDate(dateString) {
             month: 'short',
             year: 'numeric',
             hour: '2-digit',
-            minute: '2-digit'
+            minute: '2-digit',
+            second: '2-digit'
         });
     } catch (e) {
         return dateString;
