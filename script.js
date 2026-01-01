@@ -488,10 +488,13 @@ function extractRupeeAmount(announcement) {
     // Check both HEADLINE and MORE fields
     const text = `${announcement.HEADLINE || ''} ${announcement.MORE || ''}`.toLowerCase();
     
-    // Patterns to match rupee amounts:
-    // Rs. 28.75 Crore, INR 170.25 Crores, ₹ 1,746 Crores, Rs 15.67 crores, etc.
+    // Patterns to match rupee amounts - improved to match backend patterns
+    // Pattern 1: Rs./INR/₹ followed by number (with decimals) and crore/lakh
+    // Pattern 2: Rs./INR/₹ followed by plain number (like "Rs. 22,39,05,000/-")
+    // Pattern 3: Number followed by crore/lakh and rupee indicators
     const patterns = [
         /(?:rs\.?|inr|₹)\s*([\d,]+\.?\d*)\s*(?:crore|crores|cr|lakh|lakhs|lac|thousand|thousands|million|millions|billion|billions)/gi,
+        /(?:rs\.?|inr|₹|worth|value)\s*(?:rs\.?|inr|₹)?\s*([\d,]{6,})\s*(?:\/|-|\(|incl|from|for|to|and|or|\s)/gi,
         /([\d,]+\.?\d*)\s*(?:crore|crores|cr|lakh|lakhs|lac)\s*(?:rupee|rupees|rs\.?|inr|₹)/gi,
         /(?:order|value|worth|amount|of)\s*(?:rs\.?|inr|₹)\s*([\d,]+\.?\d*)\s*(?:crore|crores|cr)/gi,
     ];
